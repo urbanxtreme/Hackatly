@@ -396,18 +396,32 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           }
         });
 
-        // Simple cycle detection: A -> B and B -> A
-        let detectedCycle = false;
-        blockedBy.forEach((blockingId, botId) => {
-          const blocksTheBlocker = blockedBy.get(blockingId);
-          if (blocksTheBlocker === botId) {
-            detectedCycle = true;
+        // 2. Cycle detection across the wait-for graph
+        let newDeadlock = false;
+        for (const startId of blockedBy.keys()) {
+          let currentId = startId;
+          const visited = new Set<number>();
+          while (blockedBy.has(currentId)) {
+             visited.add(currentId);
+             currentId = blockedBy.get(currentId)!;
+             if (visited.has(currentId)) {
+                // Cycle detected
+                const cycleBots = Array.from(visited);
+                // Only trigger freeze if AT LEAST ONE bot in the cycle hasn't been frozen yet
+                if (cycleBots.some(id => {
+                  const bot = prev.find(r => r.id === id);
+                  return bot && (bot.consecutiveBlocks || 0) < 5;
+                })) {
+                    newDeadlock = true;
+                }
+                break;
+             }
           }
-        });
+        }
 
-        if (detectedCycle) {
+        if (newDeadlock) {
           setPhysicalDeadlockTime(prevTime => prevTime === null ? 10 : prevTime);
-          return prev.map(bot => blockedBy.has(bot.id) ? { ...bot, status: 'BLOCKED' as const, consecutiveBlocks: 5 /* force repath on unfreeze */ } : bot);
+          return prev.map(bot => blockedBy.has(bot.id) ? { ...bot, status: 'BLOCKED' as const, consecutiveBlocks: 5 /* primed to repath on unfreeze */ } : bot);
         }
 
         const nextFleet = prev.map(bot => {
