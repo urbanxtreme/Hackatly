@@ -353,12 +353,26 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
               if (bot.currentTaskId) {
                 const tid = bot.currentTaskId;
                 setCompletedTaskIds(prev => new Set(prev).add(tid));
-                completeTask(tid).catch(err => console.error('[SimulationView] Failed to complete task:', err));
                 
-                // Sync position to backend
-                updateRobotPosition(bot.id, bot.x, bot.z).catch(err => console.error('[SimulationView] Failed to sync position:', err));
+                // Make API calls resilient — if backend fails (e.g., old binary 404),
+                // the frontend should still free the robot locally so it doesn't get stuck.
+                completeTask(tid).catch(err => {
+                  console.error('[SimulationView] API Error completing task:', err);
+                  console.warn('Is the backend compiled with the latest complete endpoint?');
+                });
+                
+                updateRobotPosition(bot.id, bot.x, bot.z).catch(err => {
+                  console.error('[SimulationView] API Error syncing position:', err);
+                });
               }
-              return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false, currentTaskId: undefined, metrics: m };
+              return { 
+                ...bot, 
+                status: 'DONE' as const, 
+                missionPhase: 'IDLE' as const, 
+                payloadVisible: false, 
+                currentTaskId: undefined, 
+                metrics: m 
+              };
             }
           }
         });
