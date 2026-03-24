@@ -26,9 +26,8 @@ func main() {
 
 	r := gin.Default()
 
-	// CORS middleware — allow frontend on :5173
 	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "http://localhost:5173")
+		c.Header("Access-Control-Allow-Origin", "*.")
 		c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS")
 		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		c.Header("Access-Control-Allow-Credentials", "true")
@@ -44,12 +43,11 @@ func main() {
 
 	r.POST("/register", RegisterHandler)
 	r.POST("/login", LoginHandler)
-
+	r.GET("/robots", GetAllRobotsHandler)
 	protected := r.Group("/")
 	protected.Use(AuthMiddleware())
 	{
 		protected.POST("/robots", AddRobotHandler)
-		protected.GET("/robots", GetAllRobotsHandler)
 		protected.GET("/robots/:id", GetRobotByIDHandler)
 		protected.PATCH("/robots/:id/state", UpdateRobotStateHandler)
 		protected.PATCH("/robots/:id/priority", UpdateRobotPriorityHandler)
@@ -62,6 +60,8 @@ func main() {
 
 		protected.POST("/task", CreateTaskHandler)
 		protected.GET("/tasks", GetTasksHandler)
+		protected.DELETE("/tasks/:id", DeleteTaskHandler)
+		protected.DELETE("/robots/:id", DeleteRobotHandler)
 
 
 	}

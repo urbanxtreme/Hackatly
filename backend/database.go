@@ -13,14 +13,15 @@ import (
 )
 
 type Robot struct {
-	ID               int64   `json:"id"`
-	Name             string  `json:"name"`
-	State            string  `json:"state"`    // active, idle, charging, error
-	Priority         string  `json:"priority"` // high, medium, low
-	CurrentPositionX float64 `json:"x"`
-	CurrentPositionY float64 `json:"y"`
-	CurrentTask      string  `json:"current_task"`
-	Battery          int     `json:"battery"`
+	ID               int64     `json:"id"`
+	Name             string    `json:"name"`
+	State            string    `json:"state"`    // active, idle, charging, error
+	Priority         string    `json:"priority"` // high, medium, low
+	CurrentPosition  []float64 `json:"current_position"`
+	CurrentPositionX float64   `json:"x"`
+	CurrentPositionY float64   `json:"y"`
+	CurrentTask      string    `json:"current_task"`
+	Battery          int       `json:"battery"`
 }
 
 type Log struct {
@@ -247,6 +248,9 @@ func GetRobotByID(id int64) (Robot, error) {
 	var r Robot
 	query := "SELECT id, name, state, priority, current_position_x, current_position_y, current_task, battery FROM robots WHERE id = ?"
 	err := DB.QueryRow(query, id).Scan(&r.ID, &r.Name, &r.State, &r.Priority, &r.CurrentPositionX, &r.CurrentPositionY, &r.CurrentTask, &r.Battery)
+	if err == nil {
+		r.CurrentPosition = []float64{r.CurrentPositionX, r.CurrentPositionY}
+	}
 	return r, err
 }
 
@@ -264,9 +268,33 @@ func GetAllRobots() ([]Robot, error) {
 		if err := rows.Scan(&r.ID, &r.Name, &r.State, &r.Priority, &r.CurrentPositionX, &r.CurrentPositionY, &r.CurrentTask, &r.Battery); err != nil {
 			return nil, err
 		}
+		r.CurrentPosition = []float64{r.CurrentPositionX, r.CurrentPositionY}
 		robots = append(robots, r)
 	}
 	return robots, nil
+}
+
+func DeleteRobot(id int64) error {
+	// First delete associated logs due to foreign key constraint
+	_, err := DB.Exec("DELETE FROM logs WHERE bot_id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete logs for robot: %w", err)
+	}
+
+	_, err = DB.Exec("DELETE FROM robots WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete robot: %w", err)
+	}
+	return nil
+}
+
+func DeleteTask(taskID string) error {
+	_, err := DB.Exec("DELETE FROM tasks WHERE task_id = ?", taskID)
+	if err != nil {
+		return fmt.Errorf("failed to delete task: %w", err)
+	}
+	RemoveTaskByID(taskID)
+	return nil
 }
 
 // Log functions

@@ -111,3 +111,14 @@ func DrainTasks() []Task {
 	}
 	return tasks
 }
+
+func RemoveTaskByID(id string) {
+	TaskQueue.mu.Lock()
+	defer TaskQueue.mu.Unlock()
+	for i, t := range TaskQueue.heap {
+		if t.TaskID == id {
+			heap.Remove(&TaskQueue.heap, i)
+			return
+		}
+	}
+}

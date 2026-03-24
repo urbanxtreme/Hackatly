@@ -94,6 +94,21 @@ func GetTasksHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, tasks)
 }
 
+func DeleteTaskHandler(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Task ID is required"})
+		return
+	}
+
+	if err := DeleteTask(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Task deleted successfully"})
+}
+
 
 
 func StartTaskWorker() {
