@@ -50,6 +50,14 @@ func (rt *ReservationTable) ReservePath(path []PathStep) {
 	}
 }
 
+func (rt *ReservationTable) ReserveAlways(x, y int) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	for t := 0; t < 1000; t++ {
+		rt.reserved[reservationKey(x, y, t)] = true
+	}
+}
+
 
 type astarNode struct {
 	x, y, t  int

@@ -61,7 +61,7 @@ func ResolveDeadlock(tasks []Task, cycles [][]string) DeadlockResolution {
 			conflict = true
 		}
 
-		if conflict && cycleSet[task.TaskID] {
+		if conflict && cycleSet[task.TaskID] && task.Status != "in_progress" {
 			task.Status = "waiting"
 			paused = append(paused, task.TaskID)
 		} else {

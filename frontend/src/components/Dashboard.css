@@ -712,3 +712,31 @@
   .task-form-row { flex-direction: column; }
   .form-arrow { display: none; }
 }
+
+/* Delete Buttons */
+.actions-cell {
+  text-align: center;
+  width: 50px;
+}
+
+.btn-delete-row, .btn-delete-task {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0.2rem;
+  border-radius: 4px;
+  transition: all 0.2s;
+  opacity: 0.6;
+}
+
+.btn-delete-row:hover, .btn-delete-task:hover {
+  background: rgba(220, 38, 38, 0.1);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.btn-delete-task {
+  margin-left: 0.5rem;
+}
+

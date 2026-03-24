@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import DashboardCanvas from './DashboardCanvas';
 import SimulationView from './SimulationView';
 import TaskManager from './TaskManager';
-import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot } from '../api';
+import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot, deleteRobot } from '../api';
 import './Dashboard.css';
 
 /* ─── Types ─── */
@@ -97,8 +97,6 @@ const Dashboard = () => {
     ? Math.round((activeRobots / robots.length) * 100)
     : 0;
 
-
-
   // Add robot
   const handleAddRobot = async () => {
     if (!newRobotName.trim()) return;
@@ -109,6 +107,18 @@ const Dashboard = () => {
       fetchData();
     } catch (err: any) {
       alert(err.message || 'Failed to add robot');
+    }
+  };
+
+  // Delete robot
+  const handleDeleteRobot = async (id: number) => {
+    if (confirm('Are you sure you want to delete this robot? This will also delete all associated logs.')) {
+      try {
+        await deleteRobot(id);
+        fetchData(); // Refresh list
+      } catch (err: any) {
+        alert(err.message || 'Failed to delete robot');
+      }
     }
   };
 
@@ -259,6 +269,7 @@ const Dashboard = () => {
                           <th>Priority</th>
                           <th>Battery</th>
                           <th>Current Task</th>
+                          <th>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -287,7 +298,16 @@ const Dashboard = () => {
                                   <span className="battery-pct">{robot.battery}%</span>
                                 </div>
                               </td>
-                              <td className="task-cell">{robot.current_task}</td>
+                               <td className="task-cell">{robot.current_task}</td>
+                              <td className="actions-cell">
+                                <button 
+                                  className="btn-delete-row" 
+                                  onClick={() => handleDeleteRobot(robot.id)}
+                                  title="Delete Robot"
+                                >
+                                  🗑️
+                                </button>
+                              </td>
                             </tr>
                           ))
                         )}
@@ -300,6 +320,7 @@ const Dashboard = () => {
                 <TaskManager 
                   tasks={tasks} 
                   onTaskAdded={fetchData} 
+                  onTaskDeleted={fetchData}
                   onSwitchToSimulation={() => setActiveTab('simulation')} 
                 />
               </div>

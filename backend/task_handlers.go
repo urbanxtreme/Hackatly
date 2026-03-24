@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 	"time"
@@ -101,6 +102,7 @@ func CompleteTaskHandler(c *gin.Context) {
 		return
 	}
 
+	// Idempotent update: set status to completed
 	result, err := DB.Exec("UPDATE tasks SET status = 'completed' WHERE task_id = ?", taskID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -109,6 +111,16 @@ func CompleteTaskHandler(c *gin.Context) {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
+		var status string
+		err := DB.QueryRow("SELECT status FROM tasks WHERE task_id = ?", taskID).Scan(&status)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+			return
+		}
+		if status == "completed" {
+			c.JSON(http.StatusOK, gin.H{"status": "task already completed", "task_id": taskID})
+			return
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
 		return
 	}
@@ -131,51 +143,78 @@ func DeleteTaskHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Task deleted successfully"})
 }
 
-
-
 func StartTaskWorker() {
 	go func() {
 		log.Println("[TaskWorker] Background task worker started")
 		for {
 			<-TaskQueue.notify
-
 			processQueuedTasks()
 		}
 	}()
 }
 
 func processQueuedTasks() {
-	tasks := DrainTasks()
-	if len(tasks) == 0 {
+	// Drain strictly new tasks from memory queue first
+	_ = DrainTasks()
+	
+	// Fetch ALL uncompleted tasks from DB to get a global picture
+	rows, err := DB.Query("SELECT task_id, get_x, get_y, put_x, put_y, priority, status, created_at FROM tasks WHERE status IN ('pending', 'in_progress', 'waiting')")
+	if err != nil {
+		log.Printf("[TaskWorker] DB error: %v\n", err)
 		return
 	}
+	defer rows.Close()
 
-	log.Printf("[TaskWorker] Processing %d task(s)...\n", len(tasks))
-
-	cycles := CheckDeadlock(tasks)
-
-	var resolution DeadlockResolution
-	if len(cycles) > 0 {
-		resolution = ResolveDeadlock(tasks, cycles)
-		tasks = resolution.ReorderedTasks
-		log.Printf("[TaskWorker] Deadlock resolved, paused tasks: %v\n", resolution.PausedTaskIDs)
-	} else {
-		resolution = DeadlockResolution{
-			ReorderedTasks: tasks,
-			Message:        "no deadlock detected",
+	var allActiveTasks []Task
+	for rows.Next() {
+		var t Task
+		if err := rows.Scan(&t.TaskID, &t.GetX, &t.GetY, &t.PutX, &t.PutY, &t.Priority, &t.Status, &t.CreatedAt); err == nil {
+			allActiveTasks = append(allActiveTasks, t)
 		}
 	}
 
+	if len(allActiveTasks) == 0 {
+		return
+	}
+
+	log.Printf("[TaskWorker] Processing %d active task(s) for global deadlock check...\n", len(allActiveTasks))
+
+	// Detect cycles across all active tasks (pending + in_progress)
+	cycles := CheckDeadlock(allActiveTasks)
+
+	var resolution DeadlockResolution
+	if len(cycles) > 0 {
+		resolution = ResolveDeadlock(allActiveTasks, cycles)
+		// Update statuses in DB for tasks that need to wait
+		for _, t := range resolution.ReorderedTasks {
+			if t.Status == "waiting" {
+				DB.Exec("UPDATE tasks SET status = 'waiting' WHERE task_id = ?", t.TaskID)
+			}
+		}
+		allActiveTasks = resolution.ReorderedTasks
+		log.Printf("[TaskWorker] Deadlock resolved, paused tasks: %v\n", resolution.PausedTaskIDs)
+	}
+
+	// Always refresh reservations at the start of a batch
 	InitReservations()
 
-	for _, task := range tasks {
+	for _, task := range allActiveTasks {
+		// 1. If task is already in progress, keep its destination reserved
+		if task.Status == "in_progress" { 
+			Reservations.ReserveAlways(task.PutX, task.PutY)
+			continue
+		}
+
+		// 2. If task was paused by deadlock resolution, mark it and skip planning for now
 		if task.Status == "waiting" {
 			log.Printf("[TaskWorker] Task %s paused due to deadlock resolution\n", task.TaskID)
 			DB.Exec("UPDATE tasks SET status = 'waiting' WHERE task_id = ?", task.TaskID)
+			// Return to memory queue to re-check later
 			PushTask(task)
 			continue
 		}
 
+		// 3. Plan path for pending/waiting tasks that are now clear to move
 		pickupPath, err := CooperativeAStar(task.GetX, task.GetY, task.GetX, task.GetY)
 		if err != nil {
 			pickupPath = []PathStep{{X: task.GetX, Y: task.GetY, T: 0}}
@@ -188,13 +227,14 @@ func processQueuedTasks() {
 			continue
 		}
 
+		// Commit reservation
 		Reservations.ReservePath(deliveryPath)
 
+		// Mark as in-progress in DB so simulation picks it up
 		DB.Exec("UPDATE tasks SET status = 'in_progress' WHERE task_id = ?", task.TaskID)
 
-		log.Printf("[TaskWorker] Task %s: pickup path (%d steps), delivery path (%d steps)\n",
-			task.TaskID, len(pickupPath), len(deliveryPath))
+		log.Printf("[TaskWorker] Task %s: delivery path (%d steps) reserved\n", task.TaskID, len(deliveryPath))
 	}
 
-	log.Println("[TaskWorker] Batch processing complete")
+	log.Println("[TaskWorker] Global batch processing complete")
 }

@@ -1,11 +1,10 @@
-```
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
-import TaskManager, { type ApiTask, type TaskManagerProps } from './TaskManager';
-import { completeTask } from '../api';
+import TaskManager, { type ApiTask } from './TaskManager';
+import { completeTask, updateRobotPosition } from '../api';
 import './SimulationView.css';
 
 /* ─── Simulation Configuration ─── */
@@ -223,31 +222,21 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
   /* ─── Backend Integration & Live Task Assignment ─── */
   useEffect(() => {
-    // 1. Check for backend deadlock (any task in 'waiting' state)
     const isDeadlocked = tasks.some(t => t.status === 'waiting');
     setHasDeadlock(isDeadlocked);
 
-    // 2. Assign unassigned 'in_progress' or 'pending' tasks to IDLE robots
     const activeBackendTasks = tasks.filter(t => 
       (t.status === 'in_progress' || t.status === 'pending') && 
       !completedTaskIds.has(t.task_id)
     );
-
-    console.log('[SimulationView] Total tasks:', tasks.length, '| Active tasks:', activeBackendTasks.length);
     
     setRobots(prev => {
       let updatedList = [...prev];
       let hasChanges = false;
 
       for (const backendTask of activeBackendTasks) {
-        // Skip if already assigned in frontend
-        if (updatedList.some(r => r.currentTaskId === backendTask.task_id)) {
-          continue;
-        }
+        if (updatedList.some(r => r.currentTaskId === backendTask.task_id)) continue;
 
-        console.log(`[SimulationView] Trying to assign task ${backendTask.task_id} from (${backendTask.get_x},${backendTask.get_y}) to (${backendTask.put_x},${backendTask.put_y})`);
-
-        // Find idle robot
         const idleBotIndex = updatedList.findIndex(r => r.status === 'IDLE' || r.status === 'DONE');
         if (idleBotIndex !== -1) {
           const bot = updatedList[idleBotIndex];
@@ -257,8 +246,6 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           const dz = backendTask.put_y;
 
           const testPath = astar({ x: bot.x, z: bot.z }, { x: px, z: pz });
-          console.log(`[SimulationView] Robot #${bot.id} at (${bot.x},${bot.z}) -> A* to pick (${px},${pz}) returned ${testPath.length} steps.`);
-          
           if (testPath.length > 0) {
             updatedList[idleBotIndex] = {
               ...bot,
@@ -271,20 +258,15 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
               missionData: { px: String(px), pz: String(pz), dx: String(dx), dz: String(dz) }
             };
             hasChanges = true;
-            console.log(`[SimulationView] Assigned task ${backendTask.task_id} to Robot #${bot.id}`);
           }
-        } else {
-          console.log(`[SimulationView] No idle robots available for task ${backendTask.task_id}`);
         }
       }
       return hasChanges ? updatedList : prev;
     });
-
-  }, [tasks]);
+  }, [tasks, completedTaskIds]);
 
   /* ─── Simulation Tick Engine ─── */
   useEffect(() => {
-    // FREEZE simulation tick if a deadlock warning is active!
     if (hasDeadlock) return;
 
     const timer = setInterval(() => {
@@ -295,8 +277,6 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
           if (bot.pathIndex < bot.path.length) {
             const nextStep = bot.path[bot.pathIndex];
-            
-            // Local collision check (simple stop if cell occupied)
             const occupied = prev.some(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
             
             if (occupied) {
@@ -307,7 +287,6 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
               return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const };
             }
           } else {
-            // Reached phase target
             needsUpdate = true;
             if (bot.missionPhase === 'TO_PICK') {
               const nextPath = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) });
@@ -325,25 +304,18 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
               const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget);
               return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false };
             } else {
-              // Task permanently finished visually
               if (bot.currentTaskId) {
                 const tid = bot.currentTaskId;
                 setCompletedTaskIds(prev => new Set(prev).add(tid));
-                // Notify backend
                 completeTask(tid).catch(err => console.error('[SimulationView] Failed to complete task:', err));
                 
-                // NEW: Sync position to backend
-                const robotId = bot.id;
-                const finalX = bot.x;
-                const finalY = bot.z;
-                updateRobotPosition(robotId, finalX, finalY).catch(err => console.error('[SimulationView] Failed to sync position:', err));
+                // Sync position to backend
+                updateRobotPosition(bot.id, bot.x, bot.z).catch(err => console.error('[SimulationView] Failed to sync position:', err));
               }
               return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false, currentTaskId: undefined };
             }
-
           }
         });
-
         return needsUpdate ? nextFleet : prev;
       });
     }, TICK_INTERVAL);
@@ -353,7 +325,6 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
   return (
     <div className="simulation-view">
-      {/* ─── Deadlock Overlay ─── */}
       {hasDeadlock && (
         <div className="deadlock-overlay">
           <div className="deadlock-warning">
@@ -365,7 +336,6 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
         </div>
       )}
 
-      {/* 3D Canvas */}
       <div className={`simulation-canvas-container ${hasDeadlock ? 'blurred' : ''}`}>
         <Canvas camera={{ position: [CENTER_OFFSET + 10, 20, CENTER_OFFSET + 10], fov: 50 }}>
           <color attach="background" args={['#050510']} />
@@ -376,7 +346,6 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           <OrbitControls target={[CENTER_OFFSET, 0, CENTER_OFFSET]} />
         </Canvas>
 
-        {/* Telemetry Modal Overlay */}
         {selectedRobot && (
           <div className="telemetry-overlay">
             <div className="panel glass telemetry-card">
@@ -407,12 +376,12 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
         )}
       </div>
 
-      {/* Control Terminal - Features TaskManager */}
       <aside className={`sim-terminal ${hasDeadlock ? 'blurred' : ''}`}>
         <div className="panel glass" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <TaskManager 
             tasks={tasks} 
             onTaskAdded={onFetchData} 
+            onTaskDeleted={onFetchData}
           />
         </div>
       </aside>
