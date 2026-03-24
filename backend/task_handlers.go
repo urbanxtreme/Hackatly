@@ -233,7 +233,8 @@ func processQueuedTasks() {
 		// Mark as in-progress in DB so simulation picks it up
 		DB.Exec("UPDATE tasks SET status = 'in_progress' WHERE task_id = ?", task.TaskID)
 
-		log.Printf("[TaskWorker] Task %s: delivery path (%d steps) reserved\n", task.TaskID, len(deliveryPath))
+		log.Printf("[TaskWorker] Task %s: pickup path (%d steps), delivery path (%d steps) reserved\n", 
+			task.TaskID, len(pickupPath), len(deliveryPath))
 	}
 
 	log.Println("[TaskWorker] Global batch processing complete")
