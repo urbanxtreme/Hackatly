@@ -224,18 +224,46 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
   /* ─── Backend Integration & Live Task Assignment ─── */
   useEffect(() => {
+    // 1. Detect deadlock or failure states
     const isDeadlocked = tasks.some(t => t.status === 'waiting');
     setHasDeadlock(isDeadlocked);
 
-    const activeBackendTasks = tasks.filter(t => 
-      (t.status === 'in_progress' || t.status === 'pending') && 
-      !completedTaskIds.has(t.task_id)
-    );
-    
+    // 2. Reconcile: if backend has marked a task as 'failed' or 'completed',
+    //    but a robot in the simulation is still working on it → reset that robot
     setRobots(prev => {
       let updatedList = [...prev];
       let hasChanges = false;
 
+      for (let i = 0; i < updatedList.length; i++) {
+        const bot = updatedList[i];
+        if (!bot.currentTaskId) continue;
+
+        const backendTask = tasks.find(t => t.task_id === bot.currentTaskId);
+        if (!backendTask) continue;
+
+        if (backendTask.status === 'failed' || backendTask.status === 'completed') {
+          // Reset this robot — the backend killed/completed the task
+          updatedList[i] = {
+            ...bot,
+            status: 'DONE' as const,
+            missionPhase: 'IDLE' as const,
+            payloadVisible: false,
+            currentTaskId: undefined,
+            path: [],
+            pathIndex: 0,
+          };
+          setCompletedTaskIds(prev => new Set(prev).add(backendTask.task_id));
+          hasChanges = true;
+          console.log(`[SimulationView] Robot #${bot.id} reset: task ${backendTask.task_id} is ${backendTask.status}`);
+        }
+      }
+
+      // 3. Assign unassigned 'in_progress' or 'pending' tasks to IDLE robots
+      const activeBackendTasks = tasks.filter(t => 
+        (t.status === 'in_progress' || t.status === 'pending') && 
+        !completedTaskIds.has(t.task_id)
+      );
+      
       for (const backendTask of activeBackendTasks) {
         if (updatedList.some(r => r.currentTaskId === backendTask.task_id)) continue;
 
@@ -341,8 +369,11 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
     return () => clearInterval(timer);
   }, [hasDeadlock]);
 
+  const failedTasks = tasks.filter(t => t.status === 'failed');
+
   return (
     <div className="simulation-view">
+      {/* ─── Deadlock Overlay ─── */}
       {hasDeadlock && (
         <div className="deadlock-overlay">
           <div className="deadlock-warning">
@@ -353,6 +384,14 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           </div>
         </div>
       )}
+
+      {/* ─── Failed Task Warning Banner ─── */}
+      {failedTasks.length > 0 && !hasDeadlock && (
+        <div className="failed-task-banner">
+          ⚠️ {failedTasks.length} task(s) failed — path conflict or unreachable destination. Robot(s) have been stopped.
+        </div>
+      )}
+
 
       <div className={`simulation-canvas-container ${hasDeadlock ? 'blurred' : ''}`}>
         <Canvas camera={{ position: [CENTER_OFFSET + 10, 20, CENTER_OFFSET + 10], fov: 50 }}>

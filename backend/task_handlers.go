@@ -145,30 +145,66 @@ func StartTaskWorker() {
 }
 
 func processQueuedTasks() {
-	tasks := DrainTasks()
-	if len(tasks) == 0 {
+	newTasks := DrainTasks()
+	if len(newTasks) == 0 {
 		return
 	}
 
-	log.Printf("[TaskWorker] Processing %d task(s)...\n", len(tasks))
+	log.Printf("[TaskWorker] Processing %d new task(s)...\n", len(newTasks))
 
-	cycles := CheckDeadlock(tasks)
+	// Also load existing in_progress tasks from DB so deadlock detection
+	// can catch conflicts between new tasks and already-running tasks.
+	var existingTasks []Task
+	rows, err := DB.Query("SELECT task_id, get_x, get_y, put_x, put_y, priority, status, created_at FROM tasks WHERE status = 'in_progress'")
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var t Task
+			if err := rows.Scan(&t.TaskID, &t.GetX, &t.GetY, &t.PutX, &t.PutY, &t.Priority, &t.Status, &t.CreatedAt); err == nil {
+				existingTasks = append(existingTasks, t)
+			}
+		}
+	}
+
+	// Combine for deadlock detection
+	allTasks := append(existingTasks, newTasks...)
+	cycles := CheckDeadlock(allTasks)
 
 	var resolution DeadlockResolution
 	if len(cycles) > 0 {
-		resolution = ResolveDeadlock(tasks, cycles)
-		tasks = resolution.ReorderedTasks
+		resolution = ResolveDeadlock(allTasks, cycles)
 		log.Printf("[TaskWorker] Deadlock resolved, paused tasks: %v\n", resolution.PausedTaskIDs)
-	} else {
-		resolution = DeadlockResolution{
-			ReorderedTasks: tasks,
-			Message:        "no deadlock detected",
+
+		// Only process the new tasks from the resolution (existing ones are already running)
+		existingIDs := make(map[string]bool)
+		for _, t := range existingTasks {
+			existingIDs[t.TaskID] = true
 		}
+
+		var tasksToProcess []Task
+		for _, t := range resolution.ReorderedTasks {
+			if !existingIDs[t.TaskID] {
+				tasksToProcess = append(tasksToProcess, t)
+			} else if t.Status == "waiting" {
+				// If an existing in_progress task is now in conflict, pause it
+				DB.Exec("UPDATE tasks SET status = 'waiting' WHERE task_id = ?", t.TaskID)
+				log.Printf("[TaskWorker] Existing task %s paused due to deadlock\n", t.TaskID)
+			}
+		}
+		newTasks = tasksToProcess
 	}
 
 	InitReservations()
 
-	for _, task := range tasks {
+	// Re-reserve paths for existing in_progress tasks
+	for _, t := range existingTasks {
+		path, err := CooperativeAStar(t.GetX, t.GetY, t.PutX, t.PutY)
+		if err == nil {
+			Reservations.ReservePath(path)
+		}
+	}
+
+	for _, task := range newTasks {
 		if task.Status == "waiting" {
 			log.Printf("[TaskWorker] Task %s paused due to deadlock resolution\n", task.TaskID)
 			DB.Exec("UPDATE tasks SET status = 'waiting' WHERE task_id = ?", task.TaskID)
