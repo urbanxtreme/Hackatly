@@ -1,410 +1,516 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-  <title>Warehouse Robot Simulation - Complex Routing</title>
-  <style>
-    body { margin: 0; overflow: hidden; background-color: #111111; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-    
-    #dashboard {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      width: 400px;
-      background: rgba(30, 30, 40, 0.9);
-      color: #eeeeee;
-      padding: 15px;
-      border-radius: 8px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-      border: 1px solid #444;
-      z-index: 100;
-      max-height: 90vh;
-      overflow-y: auto;
-    }
-    
-    h2 { margin-top: 0; font-size: 1.1rem; color: #ffaa00; border-bottom: 2px solid #555; padding-bottom: 8px; margin-bottom: 12px; }
-    
-    .control-group {
-      margin-bottom: 12px;
-      background: rgba(0,0,0,0.3);
-      padding: 10px;
-      border-radius: 5px;
-    }
+    <title>Warehouse Robot Simulation - Complex Routing</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #111111;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
 
-    label { display: block; margin-bottom: 4px; font-weight: bold; font-size: 0.8rem; }
-    input { padding: 4px; width: 100%; box-sizing: border-box; background: #2a2a35; color: white; border: 1px solid #555; border-radius: 4px; font-size: 0.8rem;}
-    button { background: #00aa55; color: white; border: none; padding: 8px 12px; width: 100%; border-radius: 4px; cursor: pointer; font-weight: bold; transition: background 0.2s; font-size: 0.9rem;}
-    button:hover { background: #00cc66; }
-    
-    #statusList { margin-top: 15px; font-size: 0.75rem; }
-    .robot-stat { padding: 4px; border-bottom: 1px solid #444; display: flex; justify-content: space-between; align-items: center; }
-    .status-badge { padding: 2px 6px; border-radius: 3px; font-weight: bold; color: white;}
-    .status-idle { background: #555; }
-    .status-moving { background: #0077ff; }
-    .status-blocked { background: #ff3333; animation: pulse 1s infinite; }
-    .status-done { background: #00aa55; }
+        #dashboard {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 400px;
+            background: rgba(30, 30, 40, 0.9);
+            color: #eeeeee;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            border: 1px solid #444;
+            z-index: 100;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
 
-    /* Pop-up Modal Styling */
-    #robotModal {
-      display: none;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(20, 20, 30, 0.95);
-      color: #fff;
-      padding: 20px;
-      border-radius: 10px;
-      border: 1px solid #555;
-      box-shadow: 0 0 20px rgba(0,0,0,0.8);
-      z-index: 200;
-      width: 350px;
-    }
-    #robotModal h3 { margin-top: 0; color: #00ffff; }
-    #robotModal pre { background: #0a0a0f; padding: 10px; border-radius: 5px; font-size: 0.8rem; max-height: 200px; overflow-y: auto;}
-    .close-btn { position: absolute; top: 10px; right: 15px; color: #ff5555; cursor: pointer; font-size: 1.2rem; font-weight: bold; }
+        h2 {
+            margin-top: 0;
+            font-size: 1.1rem;
+            color: #ffaa00;
+            border-bottom: 2px solid #555;
+            padding-bottom: 8px;
+            margin-bottom: 12px;
+        }
 
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-  </style>
+        .control-group {
+            margin-bottom: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 4px;
+            font-weight: bold;
+            font-size: 0.8rem;
+        }
+
+        input {
+            padding: 4px;
+            width: 100%;
+            box-sizing: border-box;
+            background: #2a2a35;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        button {
+            background: #00aa55;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            width: 100%;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.2s;
+            font-size: 0.9rem;
+        }
+
+        button:hover {
+            background: #00cc66;
+        }
+
+        #statusList {
+            margin-top: 15px;
+            font-size: 0.75rem;
+        }
+
+        .robot-stat {
+            padding: 4px;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-badge {
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .status-idle {
+            background: #555;
+        }
+
+        .status-moving {
+            background: #0077ff;
+        }
+
+        .status-blocked {
+            background: #ff3333;
+            animation: pulse 1s infinite;
+        }
+
+        .status-done {
+            background: #00aa55;
+        }
+
+        /* Pop-up Modal Styling */
+        #robotModal {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(20, 20, 30, 0.95);
+            color: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #555;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            z-index: 200;
+            width: 350px;
+        }
+
+        #robotModal h3 {
+            margin-top: 0;
+            color: #00ffff;
+        }
+
+        #robotModal pre {
+            background: #0a0a0f;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 0.8rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            color: #ff5555;
+            cursor: pointer;
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+
+        @keyframes pulse {
+            0% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+
+            100% {
+                opacity: 1;
+            }
+        }
+    </style>
 </head>
 
 <body>
 
-<div id="dashboard">
-  <h2>Multi-Stage Control Terminal</h2>
-  
-  <div class="control-group">
-    <label>Mission Assignment: Pick & Drop (X, Z)</label>
-    <div id="multiDispatchGroup" style="display:flex; flex-direction:column; gap:6px;">
-        <!-- Filled by JS -->
+    <div id="dashboard">
+        <h2>Multi-Stage Control Terminal</h2>
+
+        <div class="control-group">
+            <label>Mission Assignment: Pick & Drop (X, Z)</label>
+            <div id="multiDispatchGroup" style="display:flex; flex-direction:column; gap:6px;">
+                <!-- Filled by JS -->
+            </div>
+        </div>
+
+        <button onclick="dispatchAllRobots()">🔥 Dispatch Missions</button>
+        <button onclick="startAutonomousSimulator()" style="margin-top: 8px; background: #cc3333;">Randomize Autonomous
+            Traffic</button>
+
+        <h2 style="margin-top: 20px;">Fleet Status (Click Robot in 3D for Details)</h2>
+        <div id="statusList"></div>
     </div>
-  </div>
-  
-  <button onclick="dispatchAllRobots()">🔥 Dispatch Missions</button>
-  <button onclick="startAutonomousSimulator()" style="margin-top: 8px; background: #cc3333;">Randomize Autonomous Traffic</button>
-  
-  <h2 style="margin-top: 20px;">Fleet Status (Click Robot in 3D for Details)</h2>
-  <div id="statusList"></div>
-</div>
 
-<!-- Details Modal -->
-<div id="robotModal">
-    <span class="close-btn" onclick="closeModal()">×</span>
-    <h3 id="modalTitle">Robot Telemetry</h3>
-    <p id="modalState">State: </p>
-    <p><strong>Calculated Path:</strong></p>
-    <pre id="modalPath"></pre>
-</div>
+    <!-- Details Modal -->
+    <div id="robotModal">
+        <span class="close-btn" onclick="closeModal()">×</span>
+        <h3 id="modalTitle">Robot Telemetry</h3>
+        <p id="modalState">State: </p>
+        <p><strong>Calculated Path:</strong></p>
+        <pre id="modalPath"></pre>
+    </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 
-<script>
-// =========================
-// SCENE SETUP
-// =========================
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1a1a24);
+    <script>
+        // =========================
+        // SCENE SETUP
+        // =========================
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x1a1a24);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
 
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.dampingFactor = 0.05;
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
 
-// =========================
-// RAYCASTER (CLICK TO INSPECT)
-// =========================
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
+        // =========================
+        // RAYCASTER (CLICK TO INSPECT)
+        // =========================
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
 
-window.addEventListener('pointerdown', (event) => {
-    // Only register clicks on the canvas (avoiding dashboard)
-    if(event.target.tagName !== 'CANVAS') return;
+        window.addEventListener('pointerdown', (event) => {
+            // Only register clicks on the canvas (avoiding dashboard)
+            if (event.target.tagName !== 'CANVAS') return;
 
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-    raycaster.setFromCamera(mouse, camera);
+            raycaster.setFromCamera(mouse, camera);
 
-    // Get all robot meshes
-    const interactables = robots.map(r => r.group.children[0]); // The body mesh
-    const intersects = raycaster.intersectObjects(interactables);
+            // Get all robot meshes
+            const interactables = robots.map(r => r.group.children[0]); // The body mesh
+            const intersects = raycaster.intersectObjects(interactables);
 
-    if (intersects.length > 0) {
-        // Find which robot owns this mesh
-        const hitBody = intersects[0].object;
-        const bot = robots.find(r => r.group.children[0] === hitBody);
-        if(bot) openModal(bot);
-    }
-});
+            if (intersects.length > 0) {
+                // Find which robot owns this mesh
+                const hitBody = intersects[0].object;
+                const bot = robots.find(r => r.group.children[0] === hitBody);
+                if (bot) openModal(bot);
+            }
+        });
 
-// Modal Logic
-function openModal(bot) {
-    document.getElementById("robotModal").style.display = "block";
-    document.getElementById("modalTitle").innerText = `🤖 Robot #${bot.id} Telemetry`;
-    document.getElementById("modalTitle").style.color = `#${bot.hexColorString}`;
-    
-    document.getElementById("modalState").innerHTML = `
+        // Modal Logic
+        function openModal(bot) {
+            document.getElementById("robotModal").style.display = "block";
+            document.getElementById("modalTitle").innerText = `🤖 Robot #${bot.id} Telemetry`;
+            document.getElementById("modalTitle").style.color = `#${bot.hexColorString}`;
+
+            document.getElementById("modalState").innerHTML = `
         <strong>Current Pos:</strong> [${bot.x}, ${bot.z}]<br>
         <strong>Phase:</strong> ${bot.missionPhase}<br>
         <strong>Status:</strong> ${bot.state}
     `;
 
-    if(bot.path.length > 0) {
-        let pText = bot.path.map((p, i) => `${i === bot.pathIndex ? "📍 " : "  "}[${p.x}, ${p.z}]`).join("\n");
-        document.getElementById("modalPath").innerText = pText;
-    } else {
-        document.getElementById("modalPath").innerText = "No active path.";
-    }
-}
-function closeModal() {
-    document.getElementById("robotModal").style.display = "none";
-}
-
-// =========================
-// LIGHTING
-// =========================
-scene.add(new THREE.AmbientLight(0x555555));
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
-dirLight.position.set(20, 50, 20);
-scene.add(dirLight);
-
-// =========================
-// ENVIRONMENT BUILDER
-// =========================
-const gridSize = 30; // 30x30 Warehouse
-const centerOffset = (gridSize - 1) / 2;
-
-camera.position.set(centerOffset + 20, 25, centerOffset + 20);
-camera.lookAt(centerOffset, 0, centerOffset);
-controls.target.set(centerOffset, 0, centerOffset);
-
-const ground = new THREE.Mesh(
-  new THREE.PlaneGeometry(gridSize, gridSize),
-  new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 1.0 }) 
-);
-ground.rotation.x = -Math.PI / 2;
-ground.position.set(centerOffset, -0.01, centerOffset);
-scene.add(ground);
-
-const gridHelper = new THREE.GridHelper(gridSize, gridSize, 0x888888, 0x444444);
-gridHelper.position.set(centerOffset, 0, centerOffset);
-scene.add(gridHelper);
-
-let grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
-
-const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0x2b5797, roughness: 0.8 });
-const obstacleGeo = new THREE.BoxGeometry(0.9, 1.5, 0.9);
-const edgesGeo = new THREE.EdgesGeometry(obstacleGeo);
-const edgesMat = new THREE.LineBasicMaterial({ color: 0x111111, linewidth: 1 });
-
-function addObstacle(x, z) {
-  const cube = new THREE.Mesh(obstacleGeo, obstacleMaterial);
-  cube.position.set(x, 0.75, z);
-  cube.add(new THREE.LineSegments(edgesGeo, edgesMat));
-  scene.add(cube);
-  grid[x][z] = 1; 
-}
-
-for (let x = 3; x < gridSize - 3; x += 5) {
-    for (let z = 3; z < gridSize - 3; z++) {
-        if (z % 8 !== 0 && z % 8 !== 1) { 
-            addObstacle(x, z);
-            addObstacle(x+1, z);
-        }
-    }
-}
-
-function createPad(x, z, padColor) {
-  const pad = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.9, 0.9),
-    new THREE.MeshBasicMaterial({ color: padColor, side: THREE.DoubleSide })
-  );
-  pad.rotation.x = -Math.PI / 2;
-  pad.position.set(x, 0.01, z);
-  scene.add(pad);
-}
-
-const spawnPoints = [
-  {x: 1, z: 1}, {x: 28, z: 1}, 
-  {x: 1, z: 28}, {x: 28, z: 28},
-  {x: 1, z: 14}, {x: 28, z: 14}
-];
-spawnPoints.forEach(p => createPad(p.x, p.z, 0x0055ff));
-
-// =========================
-// A* PATHFINDING ALGORITHM
-// =========================
-function heuristic(a, b) {
-  return Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
-}
-
-function astar(start, goal) {
-  let openSet = [start];
-  let cameFrom = new Map();
-  let gScore = new Map();
-  let fScore = new Map();
-
-  const toKey = (p) => `${p.x},${p.z}`;
-  
-  gScore.set(toKey(start), 0);
-  fScore.set(toKey(start), heuristic(start, goal));
-
-  while (openSet.length > 0) {
-    let current = openSet.reduce((a, b) => fScore.get(toKey(a)) < fScore.get(toKey(b)) ? a : b);
-
-    if (current.x === goal.x && current.z === goal.z) {
-      let calcPath = [current];
-      while (cameFrom.has(toKey(current))) {
-        current = cameFrom.get(toKey(current));
-        calcPath.push(current);
-      }
-      return calcPath.reverse();
-    }
-
-    openSet = openSet.filter(p => p.x !== current.x || p.z !== current.z);
-
-    const neighbors = [
-      {x: current.x + 1, z: current.z},
-      {x: current.x - 1, z: current.z},
-      {x: current.x, z: current.z + 1},
-      {x: current.x, z: current.z - 1}
-    ];
-
-    for (let n of neighbors) {
-      if (n.x < 0 || n.x >= gridSize || n.z < 0 || n.z >= gridSize) continue;
-      if (grid[n.x][n.z] === 1) continue; // Avoid static racks
-
-      let tentativeGScore = gScore.get(toKey(current)) + 1;
-      let nKey = toKey(n);
-
-      if (!gScore.has(nKey) || tentativeGScore < gScore.get(nKey)) {
-        cameFrom.set(nKey, current);
-        gScore.set(nKey, tentativeGScore);
-        fScore.set(nKey, tentativeGScore + heuristic(n, goal));
-        if (!openSet.some(p => p.x === n.x && p.z === n.z)) {
-          openSet.push(n);
-        }
-      }
-    }
-  }
-  return []; 
-}
-
-// =========================
-// ROBOT CLASS & FLEET LOGIC
-// =========================
-const robotColors = [0xff2222, 0xffaa00, 0x00cc22, 0x00aaff, 0x9900ff, 0xffffff];
-const robots = [];
-
-class Robot {
-    constructor(id, startX, startZ, colorHex) {
-        this.id = id;
-        this.x = startX;
-        this.z = startZ;
-        
-        // Payload routing
-        this.pickX = null;
-        this.pickZ = null;
-        this.dropX = null;
-        this.dropZ = null;
-        this.missionPhase = "IDLE"; // IDLE, EN_ROUTE_TO_PICK, EN_ROUTE_TO_DROP
-        
-        this.path = [];
-        this.pathIndex = 0;
-        this.state = "IDLE"; // IDLE, MOVING, BLOCKED
-        
-        this.hexColorString = new THREE.Color(colorHex).getHexString();
-        
-        this.group = new THREE.Group();
-        const body = new THREE.Mesh(
-            new THREE.BoxGeometry(0.7, 0.4, 0.8),
-            new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.5 })
-        );
-        body.position.y = 0.3;
-        
-        const antenna = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.05, 0.05, 0.3),
-            new THREE.MeshStandardMaterial({ color: 0xffffff })
-        );
-        antenna.position.set(0, 0.6, -0.2);
-        
-        // Payload visual
-        this.payloadBox = new THREE.Mesh(
-            new THREE.BoxGeometry(0.4, 0.4, 0.4),
-            new THREE.MeshStandardMaterial({ color: 0xdddddd })
-        );
-        this.payloadBox.position.set(0, 0.8, 0.1);
-        this.payloadBox.visible = false;
-        
-        this.group.add(body);
-        this.group.add(antenna);
-        this.group.add(this.payloadBox);
-        this.group.position.set(this.x, 0, this.z);
-        scene.add(this.group);
-    }
-
-    startMission(px, pz, dx, dz) {
-        this.pickX = px; this.pickZ = pz;
-        this.dropX = dx; this.dropZ = dz;
-        
-        const newPath = astar({x: this.x, z: this.z}, {x: this.pickX, z: this.pickZ});
-        if(newPath.length > 0) {
-            this.path = newPath;
-            this.pathIndex = 1; // Skip start node
-            this.state = "MOVING";
-            this.missionPhase = "TO_PICK";
-            this.payloadBox.visible = false;
-        } else {
-            console.log(`Unit #${this.id}: Cannot path to Pick target.`);
-            this.missionPhase = "FAILED";
-        }
-    }
-
-    reachedPhaseTarget() {
-        if(this.missionPhase === "TO_PICK") {
-            // Pick up the package
-            this.payloadBox.visible = true; 
-            
-            // Calculate path to drop-off
-            const newPath = astar({x: this.x, z: this.z}, {x: this.dropX, z: this.dropZ});
-            if(newPath.length > 0) {
-                this.path = newPath;
-                this.pathIndex = 1;
-                this.missionPhase = "TO_DROP";
+            if (bot.path.length > 0) {
+                let pText = bot.path.map((p, i) => `${i === bot.pathIndex ? "📍 " : "  "}[${p.x}, ${p.z}]`).join("\n");
+                document.getElementById("modalPath").innerText = pText;
             } else {
-                console.log(`Unit #${this.id}: Cannot path to Drop target.`);
-                this.missionPhase = "FAILED";
-                this.state = "IDLE";
+                document.getElementById("modalPath").innerText = "No active path.";
             }
-        } else if (this.missionPhase === "TO_DROP") {
-            // Drop off the package
-            this.payloadBox.visible = false;
-            this.state = "DONE";
-            this.missionPhase = "IDLE";
         }
-    }
-}
+        function closeModal() {
+            document.getElementById("robotModal").style.display = "none";
+        }
 
-for(let i=0; i<6; i++) {
-    const pt = spawnPoints[i];
-    robots.push(new Robot(i, pt.x, pt.z, robotColors[i]));
-}
+        // =========================
+        // LIGHTING
+        // =========================
+        scene.add(new THREE.AmbientLight(0x555555));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        dirLight.position.set(20, 50, 20);
+        scene.add(dirLight);
 
-// =========================
-// UI DASHBOARD FUNCTIONS
-// =========================
-const dispatchGroup = document.getElementById("multiDispatchGroup");
-const listElem = document.getElementById("statusList");
+        // =========================
+        // ENVIRONMENT BUILDER
+        // =========================
+        const gridSize = 30; // 30x30 Warehouse
+        const centerOffset = (gridSize - 1) / 2;
 
-function buildDispatchUI() {
-    let html = "";
-    robots.forEach(r => {
-        html += `
+        camera.position.set(centerOffset + 20, 25, centerOffset + 20);
+        camera.lookAt(centerOffset, 0, centerOffset);
+        controls.target.set(centerOffset, 0, centerOffset);
+
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(gridSize, gridSize),
+            new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 1.0 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.set(centerOffset, -0.01, centerOffset);
+        scene.add(ground);
+
+        const gridHelper = new THREE.GridHelper(gridSize, gridSize, 0x888888, 0x444444);
+        gridHelper.position.set(centerOffset, 0, centerOffset);
+        scene.add(gridHelper);
+
+        let grid = Array.from({ length: gridSize }, () => Array(gridSize).fill(0));
+
+        const obstacleMaterial = new THREE.MeshStandardMaterial({ color: 0x2b5797, roughness: 0.8 });
+        const obstacleGeo = new THREE.BoxGeometry(0.9, 1.5, 0.9);
+        const edgesGeo = new THREE.EdgesGeometry(obstacleGeo);
+        const edgesMat = new THREE.LineBasicMaterial({ color: 0x111111, linewidth: 1 });
+
+        function addObstacle(x, z) {
+            const cube = new THREE.Mesh(obstacleGeo, obstacleMaterial);
+            cube.position.set(x, 0.75, z);
+            cube.add(new THREE.LineSegments(edgesGeo, edgesMat));
+            scene.add(cube);
+            grid[x][z] = 1;
+        }
+
+        for (let x = 3; x < gridSize - 3; x += 5) {
+            for (let z = 3; z < gridSize - 3; z++) {
+                if (z % 8 !== 0 && z % 8 !== 1) {
+                    addObstacle(x, z);
+                    addObstacle(x + 1, z);
+                }
+            }
+        }
+
+        function createPad(x, z, padColor) {
+            const pad = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.9, 0.9),
+                new THREE.MeshBasicMaterial({ color: padColor, side: THREE.DoubleSide })
+            );
+            pad.rotation.x = -Math.PI / 2;
+            pad.position.set(x, 0.01, z);
+            scene.add(pad);
+        }
+
+        const spawnPoints = [
+            { x: 1, z: 1 }, { x: 28, z: 1 },
+            { x: 1, z: 28 }, { x: 28, z: 28 },
+            { x: 1, z: 14 }, { x: 28, z: 14 }
+        ];
+        spawnPoints.forEach(p => createPad(p.x, p.z, 0x0055ff));
+
+        // =========================
+        // A* PATHFINDING ALGORITHM
+        // =========================
+        function heuristic(a, b) {
+            return Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
+        }
+
+        function astar(start, goal) {
+            let openSet = [start];
+            let cameFrom = new Map();
+            let gScore = new Map();
+            let fScore = new Map();
+
+            const toKey = (p) => `${p.x},${p.z}`;
+
+            gScore.set(toKey(start), 0);
+            fScore.set(toKey(start), heuristic(start, goal));
+
+            while (openSet.length > 0) {
+                let current = openSet.reduce((a, b) => fScore.get(toKey(a)) < fScore.get(toKey(b)) ? a : b);
+
+                if (current.x === goal.x && current.z === goal.z) {
+                    let calcPath = [current];
+                    while (cameFrom.has(toKey(current))) {
+                        current = cameFrom.get(toKey(current));
+                        calcPath.push(current);
+                    }
+                    return calcPath.reverse();
+                }
+
+                openSet = openSet.filter(p => p.x !== current.x || p.z !== current.z);
+
+                const neighbors = [
+                    { x: current.x + 1, z: current.z },
+                    { x: current.x - 1, z: current.z },
+                    { x: current.x, z: current.z + 1 },
+                    { x: current.x, z: current.z - 1 }
+                ];
+
+                for (let n of neighbors) {
+                    if (n.x < 0 || n.x >= gridSize || n.z < 0 || n.z >= gridSize) continue;
+                    if (grid[n.x][n.z] === 1) continue; // Avoid static racks
+
+                    let tentativeGScore = gScore.get(toKey(current)) + 1;
+                    let nKey = toKey(n);
+
+                    if (!gScore.has(nKey) || tentativeGScore < gScore.get(nKey)) {
+                        cameFrom.set(nKey, current);
+                        gScore.set(nKey, tentativeGScore);
+                        fScore.set(nKey, tentativeGScore + heuristic(n, goal));
+                        if (!openSet.some(p => p.x === n.x && p.z === n.z)) {
+                            openSet.push(n);
+                        }
+                    }
+                }
+            }
+            return [];
+        }
+
+        // =========================
+        // ROBOT CLASS & FLEET LOGIC
+        // =========================
+        const robotColors = [0xff2222, 0xffaa00, 0x00cc22, 0x00aaff, 0x9900ff, 0xffffff];
+        const robots = [];
+
+        class Robot {
+            constructor(id, startX, startZ, colorHex) {
+                this.id = id;
+                this.x = startX;
+                this.z = startZ;
+
+                // Payload routing
+                this.pickX = null;
+                this.pickZ = null;
+                this.dropX = null;
+                this.dropZ = null;
+                this.missionPhase = "IDLE"; // IDLE, EN_ROUTE_TO_PICK, EN_ROUTE_TO_DROP
+
+                this.path = [];
+                this.pathIndex = 0;
+                this.state = "IDLE"; // IDLE, MOVING, BLOCKED
+
+                this.hexColorString = new THREE.Color(colorHex).getHexString();
+
+                this.group = new THREE.Group();
+                const body = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.7, 0.4, 0.8),
+                    new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.5 })
+                );
+                body.position.y = 0.3;
+
+                const antenna = new THREE.Mesh(
+                    new THREE.CylinderGeometry(0.05, 0.05, 0.3),
+                    new THREE.MeshStandardMaterial({ color: 0xffffff })
+                );
+                antenna.position.set(0, 0.6, -0.2);
+
+                // Payload visual
+                this.payloadBox = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.4, 0.4, 0.4),
+                    new THREE.MeshStandardMaterial({ color: 0xdddddd })
+                );
+                this.payloadBox.position.set(0, 0.8, 0.1);
+                this.payloadBox.visible = false;
+
+                this.group.add(body);
+                this.group.add(antenna);
+                this.group.add(this.payloadBox);
+                this.group.position.set(this.x, 0, this.z);
+                scene.add(this.group);
+            }
+
+            startMission(px, pz, dx, dz) {
+                this.pickX = px; this.pickZ = pz;
+                this.dropX = dx; this.dropZ = dz;
+
+                const newPath = astar({ x: this.x, z: this.z }, { x: this.pickX, z: this.pickZ });
+                if (newPath.length > 0) {
+                    this.path = newPath;
+                    this.pathIndex = 1; // Skip start node
+                    this.state = "MOVING";
+                    this.missionPhase = "TO_PICK";
+                    this.payloadBox.visible = false;
+                } else {
+                    console.log(`Unit #${this.id}: Cannot path to Pick target.`);
+                    this.missionPhase = "FAILED";
+                }
+            }
+
+            reachedPhaseTarget() {
+                if (this.missionPhase === "TO_PICK") {
+                    // Pick up the package
+                    this.payloadBox.visible = true;
+
+                    // Calculate path to drop-off
+                    const newPath = astar({ x: this.x, z: this.z }, { x: this.dropX, z: this.dropZ });
+                    if (newPath.length > 0) {
+                        this.path = newPath;
+                        this.pathIndex = 1;
+                        this.missionPhase = "TO_DROP";
+                    } else {
+                        console.log(`Unit #${this.id}: Cannot path to Drop target.`);
+                        this.missionPhase = "FAILED";
+                        this.state = "IDLE";
+                    }
+                } else if (this.missionPhase === "TO_DROP") {
+                    // Drop off the package
+                    this.payloadBox.visible = false;
+                    this.state = "DONE";
+                    this.missionPhase = "IDLE";
+                }
+            }
+        }
+
+        for (let i = 0; i < 6; i++) {
+            const pt = spawnPoints[i];
+            robots.push(new Robot(i, pt.x, pt.z, robotColors[i]));
+        }
+
+        // =========================
+        // UI DASHBOARD FUNCTIONS
+        // =========================
+        const dispatchGroup = document.getElementById("multiDispatchGroup");
+        const listElem = document.getElementById("statusList");
+
+        function buildDispatchUI() {
+            let html = "";
+            robots.forEach(r => {
+                html += `
             <div style="font-size: 0.75rem; background: rgba(0,0,0,0.2); padding: 4px; border-left: 3px solid #${r.hexColorString}; margin-bottom:4px;">
                 <div style="font-weight: bold; margin-bottom: 2px;">🤖 R${r.id} Mission:</div>
                 <div style="display: flex; gap: 4px; margin-bottom: 3px;">
@@ -419,22 +525,22 @@ function buildDispatchUI() {
                 </div>
             </div>
         `;
-    });
-    dispatchGroup.innerHTML = html;
-}
+            });
+            dispatchGroup.innerHTML = html;
+        }
 
-buildDispatchUI();
+        buildDispatchUI();
 
-function updateDashboardUI() {
-    listElem.innerHTML = '';
-    robots.forEach(r => {
-        let badgeClass = "status-idle";
-        let stateTxt = r.state;
-        if(r.state === "MOVING") badgeClass = "status-moving";
-        if(r.state === "BLOCKED") { badgeClass = "status-blocked"; stateTxt = "DEADLOCK!"; }
-        if(r.state === "DONE") badgeClass = "status-done";
+        function updateDashboardUI() {
+            listElem.innerHTML = '';
+            robots.forEach(r => {
+                let badgeClass = "status-idle";
+                let stateTxt = r.state;
+                if (r.state === "MOVING") badgeClass = "status-moving";
+                if (r.state === "BLOCKED") { badgeClass = "status-blocked"; stateTxt = "DEADLOCK!"; }
+                if (r.state === "DONE") badgeClass = "status-done";
 
-        listElem.innerHTML += `
+                listElem.innerHTML += `
             <div class="robot-stat">
                 <span style="color:#${r.hexColorString}; font-weight: bold; text-shadow: 1px 1px 0 #000;">
                     🤖 #${r.id} [${r.x},${r.z}] <br>
@@ -443,139 +549,140 @@ function updateDashboardUI() {
                 <span class="status-badge ${badgeClass}">${stateTxt}</span>
             </div>
         `;
-    });
-    
-    // Update Modal dynamically if open
-    if (document.getElementById("robotModal").style.display === "block") {
-        const idStr = document.getElementById("modalTitle").innerText;
-        const rid = parseInt(idStr.match(/#(\d+)/)[1]);
-        const bot = robots[rid];
-        if(bot) openModal(bot); 
-    }
-}
+            });
 
-function dispatchAllRobots() {
-    autonomousMode = false;
-    robots.forEach(bot => {
-        const pxI = document.getElementById(`pX_${bot.id}`).value;
-        const pzI = document.getElementById(`pZ_${bot.id}`).value;
-        const dxI = document.getElementById(`dX_${bot.id}`).value;
-        const dzI = document.getElementById(`dZ_${bot.id}`).value;
-        
-        if (pxI === "" || pzI === "" || dxI === "" || dzI === "") return; // Need all 4 inputs
-        
-        bot.startMission(parseInt(pxI), parseInt(pzI), parseInt(dxI), parseInt(dzI));
-    });
-    updateDashboardUI();
-}
-
-let autonomousMode = false;
-function startAutonomousSimulator() {
-    autonomousMode = true;
-    robots.forEach(r => {
-        if(r.state === "IDLE" || r.state === "DONE") assignRandomMission(r);
-    });
-    updateDashboardUI();
-}
-
-function assignRandomMission(bot) {
-    let px, pz, dx, dz;
-    do {
-        px = Math.floor(Math.random() * gridSize);
-        pz = Math.floor(Math.random() * gridSize);
-    } while (grid[px][pz] === 1 || (px === bot.x && pz === bot.z));
-    
-    do {
-        dx = Math.floor(Math.random() * gridSize);
-        dz = Math.floor(Math.random() * gridSize);
-    } while (grid[dx][dz] === 1 || (dx === px && dz === pz));
-    
-    bot.startMission(px, pz, dx, dz);
-    
-    document.getElementById(`pX_${bot.id}`).value = px;
-    document.getElementById(`pZ_${bot.id}`).value = pz;
-    document.getElementById(`dX_${bot.id}`).value = dx;
-    document.getElementById(`dZ_${bot.id}`).value = dz;
-}
-
-// =========================
-// COLLISION & TICK ENGINE
-// =========================
-let lastTick = performance.now();
-const tickIntervalMs = 250; 
-
-function isTileOccupiedByOtherRobot(x, z, selfId) {
-    return robots.some(r => r.id !== selfId && r.x === x && r.z === z);
-}
-
-function processFleetTick() {
-    let dashboardNeedsUpdate = false;
-
-    robots.forEach(bot => {
-        if (bot.state === "MOVING" || bot.state === "BLOCKED") {
-            if (bot.pathIndex < bot.path.length) {
-                const nextStep = bot.path[bot.pathIndex];
-                
-                if (isTileOccupiedByOtherRobot(nextStep.x, nextStep.z, bot.id)) {
-                    if (bot.state !== "BLOCKED") {
-                        bot.state = "BLOCKED"; // Deadlock!
-                        dashboardNeedsUpdate = true;
-                    }
-                } else {
-                    bot.x = nextStep.x;
-                    bot.z = nextStep.z;
-                    bot.group.position.set(bot.x, 0, bot.z);
-                    bot.pathIndex++;
-                    
-                    if (bot.state === "BLOCKED") {
-                        bot.state = "MOVING";
-                        dashboardNeedsUpdate = true;
-                    }
-                }
-            } else {
-                bot.reachedPhaseTarget();
-                dashboardNeedsUpdate = true;
-                
-                if (bot.state === "DONE") {
-                    document.getElementById(`pX_${bot.id}`).value = "";
-                    document.getElementById(`pZ_${bot.id}`).value = "";
-                    document.getElementById(`dX_${bot.id}`).value = "";
-                    document.getElementById(`dZ_${bot.id}`).value = "";
-                    
-                    if (autonomousMode && !robots.some(r => r.state === "BLOCKED")) {
-                        setTimeout(() => assignRandomMission(bot), 1000); 
-                    }
-                }
+            // Update Modal dynamically if open
+            if (document.getElementById("robotModal").style.display === "block") {
+                const idStr = document.getElementById("modalTitle").innerText;
+                const rid = parseInt(idStr.match(/#(\d+)/)[1]);
+                const bot = robots[rid];
+                if (bot) openModal(bot);
             }
         }
-    });
 
-    if (dashboardNeedsUpdate) updateDashboardUI();
-}
+        function dispatchAllRobots() {
+            autonomousMode = false;
+            robots.forEach(bot => {
+                const pxI = document.getElementById(`pX_${bot.id}`).value;
+                const pzI = document.getElementById(`pZ_${bot.id}`).value;
+                const dxI = document.getElementById(`dX_${bot.id}`).value;
+                const dzI = document.getElementById(`dZ_${bot.id}`).value;
 
-// =========================
-// WINDOW & RENDER LOOP
-// =========================
-window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-}, false);
+                if (pxI === "" || pzI === "" || dxI === "" || dzI === "") return; // Need all 4 inputs
 
-function animate(time) {
-  requestAnimationFrame(animate);
-  controls.update();
+                bot.startMission(parseInt(pxI), parseInt(pzI), parseInt(dxI), parseInt(dzI));
+            });
+            updateDashboardUI();
+        }
 
-  if (time - lastTick > tickIntervalMs) {
-      processFleetTick();
-      lastTick = time;
-  }
+        let autonomousMode = false;
+        function startAutonomousSimulator() {
+            autonomousMode = true;
+            robots.forEach(r => {
+                if (r.state === "IDLE" || r.state === "DONE") assignRandomMission(r);
+            });
+            updateDashboardUI();
+        }
 
-  renderer.render(scene, camera);
-}
+        function assignRandomMission(bot) {
+            let px, pz, dx, dz;
+            do {
+                px = Math.floor(Math.random() * gridSize);
+                pz = Math.floor(Math.random() * gridSize);
+            } while (grid[px][pz] === 1 || (px === bot.x && pz === bot.z));
 
-animate(performance.now());
+            do {
+                dx = Math.floor(Math.random() * gridSize);
+                dz = Math.floor(Math.random() * gridSize);
+            } while (grid[dx][dz] === 1 || (dx === px && dz === pz));
 
-</script>
+            bot.startMission(px, pz, dx, dz);
+
+            document.getElementById(`pX_${bot.id}`).value = px;
+            document.getElementById(`pZ_${bot.id}`).value = pz;
+            document.getElementById(`dX_${bot.id}`).value = dx;
+            document.getElementById(`dZ_${bot.id}`).value = dz;
+        }
+
+        // =========================
+        // COLLISION & TICK ENGINE
+        // =========================
+        let lastTick = performance.now();
+        const tickIntervalMs = 250;
+
+        function isTileOccupiedByOtherRobot(x, z, selfId) {
+            return robots.some(r => r.id !== selfId && r.x === x && r.z === z);
+        }
+
+        function processFleetTick() {
+            let dashboardNeedsUpdate = false;
+
+            robots.forEach(bot => {
+                if (bot.state === "MOVING" || bot.state === "BLOCKED") {
+                    if (bot.pathIndex < bot.path.length) {
+                        const nextStep = bot.path[bot.pathIndex];
+
+                        if (isTileOccupiedByOtherRobot(nextStep.x, nextStep.z, bot.id)) {
+                            if (bot.state !== "BLOCKED") {
+                                bot.state = "BLOCKED"; // Deadlock!
+                                dashboardNeedsUpdate = true;
+                            }
+                        } else {
+                            bot.x = nextStep.x;
+                            bot.z = nextStep.z;
+                            bot.group.position.set(bot.x, 0, bot.z);
+                            bot.pathIndex++;
+
+                            if (bot.state === "BLOCKED") {
+                                bot.state = "MOVING";
+                                dashboardNeedsUpdate = true;
+                            }
+                        }
+                    } else {
+                        bot.reachedPhaseTarget();
+                        dashboardNeedsUpdate = true;
+
+                        if (bot.state === "DONE") {
+                            document.getElementById(`pX_${bot.id}`).value = "";
+                            document.getElementById(`pZ_${bot.id}`).value = "";
+                            document.getElementById(`dX_${bot.id}`).value = "";
+                            document.getElementById(`dZ_${bot.id}`).value = "";
+
+                            if (autonomousMode && !robots.some(r => r.state === "BLOCKED")) {
+                                setTimeout(() => assignRandomMission(bot), 1000);
+                            }
+                        }
+                    }
+                }
+            });
+
+            if (dashboardNeedsUpdate) updateDashboardUI();
+        }
+
+        // =========================
+        // WINDOW & RENDER LOOP
+        // =========================
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }, false);
+
+        function animate(time) {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            if (time - lastTick > tickIntervalMs) {
+                processFleetTick();
+                lastTick = time;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        animate(performance.now());
+
+    </script>
 </body>
+
 </html>
