@@ -1,0 +1,280 @@
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	"github.com/go-sql-driver/mysql"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+)
+
+type Robot struct {
+	ID               int64   `json:"id"`
+	Name             string  `json:"name"`
+	State            string  `json:"state"`    // active, idle, charging, error
+	Priority         string  `json:"priority"` // high, medium, low
+	CurrentPositionX float64 `json:"x"`
+	CurrentPositionY float64 `json:"y"`
+	CurrentTask      string  `json:"current_task"`
+	Battery          int     `json:"battery"`
+}
+
+type Log struct {
+	ID        int64     `json:"id"`
+	BotID     int64     `json:"bot_id"`
+	Task      string    `json:"task"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+var DB *sql.DB
+
+func getJWTKey() []byte {
+	key := os.Getenv("JWT_SECRET")
+	if key == "" {
+		return []byte("default_secret_key_change_me")
+	}
+	return []byte(key)
+}
+
+func connector(mysqlUsername, mysqlPassword, mysqlHost, mysqlPort, mysqlDatabase string) (*sql.DB, error) {
+	cfg := mysql.Config{
+		User:                 mysqlUsername,
+		Passwd:               mysqlPassword,
+		Net:                  "tcp",
+		Addr:                 fmt.Sprintf("%s:%s", mysqlHost, mysqlPort),
+		DBName:               mysqlDatabase,
+		AllowNativePasswords: true,
+		ParseTime:            true,
+	}
+	return sql.Open("mysql", cfg.FormatDSN())
+}
+
+func ConnectDatabase() (*sql.DB, error) {
+	mysqlHost := os.Getenv("MYSQL_HOST")
+	mysqlPort := os.Getenv("MYSQL_PORT")
+	mysqlUsername := os.Getenv("MYSQL_USER")
+	mysqlPassword := os.Getenv("MYSQL_PASSWORD")
+	mysqlDatabase := os.Getenv("MYSQL_DATABASE")
+
+	var err error
+	DB, err = connector(mysqlUsername, mysqlPassword, mysqlHost, mysqlPort, mysqlDatabase)
+	if err != nil {
+		return nil, fmt.Errorf("error connecting to database: %v", err)
+	}
+
+	err = DB.Ping()
+	if err != nil {
+		return nil, fmt.Errorf("database ping failed: %v", err)
+	}
+
+	return DB, nil
+}
+
+func DisconnectDatabase() error {
+	if DB != nil {
+		return DB.Close()
+	}
+	return nil
+}
+
+func CreateDatabase() error {
+	// Users table
+	err := CreateTable("users", `
+	CREATE TABLE IF NOT EXISTS users (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(255) NOT NULL UNIQUE,
+		password VARCHAR(255) NOT NULL,
+		email VARCHAR(255) DEFAULT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		return err
+	}
+
+	err = CreateTable("robots", `
+	CREATE TABLE IF NOT EXISTS robots (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		name VARCHAR(255) NOT NULL,
+		state VARCHAR(50) DEFAULT 'idle',
+		priority VARCHAR(50) DEFAULT 'medium',
+		current_position_x DOUBLE DEFAULT 0.0,
+		current_position_y DOUBLE DEFAULT 0.0,
+		current_task VARCHAR(255) DEFAULT 'none',
+		battery INT DEFAULT 100
+	)`)
+	if err != nil {
+		return err
+	}
+
+	// Logs table
+	err = CreateTable("logs", `
+	CREATE TABLE IF NOT EXISTS logs (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		bot_id INT NOT NULL,
+		task VARCHAR(255),
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (bot_id) REFERENCES robots(id)
+	)`)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+func CreateTable(name string, query string) error {
+	_, err := DB.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to create %s table: %w", name, err)
+	}
+	log.Printf("Table %s checked/created successfully\n", name)
+	return nil
+}
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 14)
+	return string(bytes), err
+}
+
+func VerifyPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
+}
+
+func GenerateToken(userID int64) (string, error) {
+	expirationTime := time.Now().Add(24 * time.Hour)
+	claims := &jwt.RegisteredClaims{
+		Subject:   fmt.Sprintf("%d", userID),
+		ExpiresAt: jwt.NewNumericDate(expirationTime),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(getJWTKey())
+}
+func VerifyToken(tokenString string) (*Claims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		return jwtSecret, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if claims, ok := token.Claims.(*Claims); ok && token.Valid {
+		return claims, nil
+	}
+	return nil, fmt.Errorf("invalid token")
+}
+func CreateUser(name, password string) (string, error) {
+	query := "INSERT INTO users (name, password) VALUES (?, ?)"
+	hashPassword, err := HashPassword(password)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %w", err)
+	}
+	result, err := DB.Exec(query, name, hashPassword)
+	if err != nil {
+		return "", fmt.Errorf("failed to insert user: %w", err)
+	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return "", err
+	}
+
+	return GenerateToken(lastID)
+}
+
+func ValidateUser(name, password string) (string, error) {
+	query := "SELECT id, password FROM users WHERE name = ?"
+
+	var userid int64
+	var dbPassword string
+
+	err := DB.QueryRow(query, name).Scan(&userid, &dbPassword)
+	if err != nil {
+		return "", err
+	}
+
+	if VerifyPassword(password, dbPassword) {
+		return GenerateToken(userid)
+	}
+
+	return "", fmt.Errorf("invalid password")
+}
+
+// Robot functions
+
+func AddRobot(robot Robot) (int64, error) {
+	query := `INSERT INTO robots (name, state, priority, current_position_x, current_position_y, current_task, battery) 
+	          VALUES (?, ?, ?, ?, ?, ?, ?)`
+	result, err := DB.Exec(query, robot.Name, robot.State, robot.Priority, robot.CurrentPositionX, robot.CurrentPositionY, robot.CurrentTask, robot.Battery)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+func UpdateRobotState(id int64, state string) error {
+	query := "UPDATE robots SET state = ? WHERE id = ?"
+	_, err := DB.Exec(query, state, id)
+	return err
+}
+
+func UpdateRobotPriority(id int64, priority string) error {
+	query := "UPDATE robots SET priority = ? WHERE id = ?"
+	_, err := DB.Exec(query, priority, id)
+	return err
+}
+
+func GetRobotByID(id int64) (Robot, error) {
+	var r Robot
+	query := "SELECT id, name, state, priority, current_position_x, current_position_y, current_task, battery FROM robots WHERE id = ?"
+	err := DB.QueryRow(query, id).Scan(&r.ID, &r.Name, &r.State, &r.Priority, &r.CurrentPositionX, &r.CurrentPositionY, &r.CurrentTask, &r.Battery)
+	return r, err
+}
+
+func GetAllRobots() ([]Robot, error) {
+	query := "SELECT id, name, state, priority, current_position_x, current_position_y, current_task, battery FROM robots"
+	rows, err := DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var robots []Robot
+	for rows.Next() {
+		var r Robot
+		if err := rows.Scan(&r.ID, &r.Name, &r.State, &r.Priority, &r.CurrentPositionX, &r.CurrentPositionY, &r.CurrentTask, &r.Battery); err != nil {
+			return nil, err
+		}
+		robots = append(robots, r)
+	}
+	return robots, nil
+}
+
+// Log functions
+
+func AddLog(botID int64, task string) error {
+	query := "INSERT INTO logs (bot_id, task) VALUES (?, ?)"
+	_, err := DB.Exec(query, botID, task)
+	return err
+}
+
+func GetLogs() ([]Log, error) {
+	query := "SELECT id, bot_id, task, timestamp FROM logs ORDER BY timestamp DESC"
+	rows, err := DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []Log
+	for rows.Next() {
+		var l Log
+		if err := rows.Scan(&l.ID, &l.BotID, &l.Task, &l.Timestamp); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
