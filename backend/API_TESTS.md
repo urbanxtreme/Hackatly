@@ -11,7 +11,8 @@
 ```json
 {
   "username": "testuser",
-  "password": "pass123"
+  "password": "pass123",
+  "email": "emailid@gmail.com"
 }
 ```
 

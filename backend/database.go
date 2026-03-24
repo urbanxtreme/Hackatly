@@ -167,7 +167,6 @@ func GenerateToken(userID int64) (string, error) {
 	return token.SignedString(getJWTKey())
 }
 
-// VerifyToken verifies a JWT token string and returns the claims if valid
 func VerifyToken(tokenString string) (*jwt.RegisteredClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &jwt.RegisteredClaims{}, func(token *jwt.Token) (interface{}, error) {
 		return getJWTKey(), nil
@@ -183,13 +182,13 @@ func VerifyToken(tokenString string) (*jwt.RegisteredClaims, error) {
 
 	return nil, fmt.Errorf("invalid token")
 }
-func CreateUser(name, password string) (string, error) {
-	query := "INSERT INTO users (name, password) VALUES (?, ?)"
+func CreateUser(name, password, email string) (string, error) {
+	query := "INSERT INTO users (name, password,email) VALUES (?, ?, ?)"
 	hashPassword, err := HashPassword(password)
 	if err != nil {
 		return "", fmt.Errorf("failed to hash password: %w", err)
 	}
-	result, err := DB.Exec(query, name, hashPassword)
+	result, err := DB.Exec(query, name, hashPassword,email)
 	if err != nil {
 		return "", fmt.Errorf("failed to insert user: %w", err)
 	}

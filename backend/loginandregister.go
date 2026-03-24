@@ -9,6 +9,7 @@ import (
 type AuthRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
+	Email string 	`json:"email" binding: "required"`
 }
 
 func RegisterHandler(c *gin.Context) {
@@ -18,7 +19,7 @@ func RegisterHandler(c *gin.Context) {
 		return
 	}
 
-	token, err := CreateUser(req.Username, req.Password)
+	token, err := CreateUser(req.Username, req.Password,req.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
