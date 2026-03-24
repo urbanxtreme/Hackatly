@@ -227,8 +227,86 @@ const SimulationView = () => {
   const robotsRef = useRef(robots);
   useEffect(() => { robotsRef.current = robots; }, [robots]);
 
+  // Task Queue for Deadlock Resolution
+  const [pendingTasks, setPendingTasks] = useState<any[]>([]);
+
+  // Go Resolver Port: Check if coordinates conflict
+  const positionsConflict = (a: any, b: any) => {
+    if ((a.px === b.px && a.pz === b.pz) || (a.px === b.dx && a.pz === b.dz)) return true;
+    if ((a.dx === b.px && a.dz === b.pz) || (a.dx === b.dx && a.dz === b.dz)) return true;
+    return false;
+  };
+
+  // Go Resolver Port: Build Graph & Detect Cycles
+  const resolveDeadlocks = (tasks: any[]) => {
+    if (tasks.length === 0) return { active: [], paused: [] };
+    
+    const edges: Record<string, string[]> = {};
+    tasks.forEach(t => edges[t.id] = []);
+    
+    for (let i = 0; i < tasks.length; i++) {
+        for (let j = 0; j < tasks.length; j++) {
+            if (i !== j && positionsConflict(tasks[i], tasks[j])) {
+                edges[tasks[i].id].push(tasks[j].id);
+            }
+        }
+    }
+
+    const visited: Record<string, boolean> = {};
+    const inStack: Record<string, boolean> = {};
+    const cycles: string[][] = [];
+    let path: string[] = [];
+
+    const dfs = (node: string): boolean => {
+        visited[node] = true;
+        inStack[node] = true;
+        path.push(node);
+
+        for (const neighbor of edges[node]) {
+            if (!visited[neighbor]) {
+                if (dfs(neighbor)) return true;
+            } else if (inStack[neighbor]) {
+                const cycleStart = path.indexOf(neighbor);
+                if (cycleStart >= 0) cycles.push([...path.slice(cycleStart)]);
+                return true;
+            }
+        }
+        path.pop();
+        inStack[node] = false;
+        return false;
+    };
+
+    tasks.forEach(t => { if (!visited[t.id]) dfs(t.id); });
+
+    const cycleSet = new Set<string>();
+    cycles.forEach(c => c.forEach(id => cycleSet.add(id)));
+
+    // Priorities: Just use ID as priority for simulation (lower ID = higher priority)
+    const sorted = [...tasks].sort((a, b) => a.id - b.id);
+    
+    const active: any[] = [];
+    const paused: any[] = [];
+    const reserved = new Set<string>();
+
+    for (const task of sorted) {
+        const pKey = `${task.px},${task.pz}`;
+        const dKey = `${task.dx},${task.dz}`;
+        
+        // If a higher priority task has reserved this cell and we are in a cycle
+        if ((reserved.has(pKey) || reserved.has(dKey)) && cycleSet.has(task.id)) {
+            paused.push(task);
+        } else {
+            reserved.add(pKey);
+            reserved.add(dKey);
+            active.push(task);
+        }
+    }
+
+    return { active, paused };
+  };
+
   /* ─── Mission Logic ─── */
-  const startMission = useCallback((id: number, px: number, pz: number, dx: number, dz: number) => {
+  const forceStartMission = useCallback((id: number, px: number, pz: number, dx: number, dz: number) => {
     setRobots(prev => prev.map(r => {
       if (r.id !== id) return r;
       const path = astar({ x: r.x, z: r.z }, { x: px, z: pz });
@@ -249,28 +327,40 @@ const SimulationView = () => {
 
   const dispatchAll = () => {
     setIsAuto(false);
+    
+    const requestedTasks: any[] = [];
     robots.forEach(r => {
       const { px, pz, dx, dz } = r.missionData;
-      if (px && pz && dx && dz) {
-        startMission(r.id, parseInt(px), parseInt(pz), parseInt(dx), parseInt(dz));
+      if (px && pz && dx && dz && r.status === 'IDLE') {
+        requestedTasks.push({ id: String(r.id), px: parseInt(px), pz: parseInt(pz), dx: parseInt(dx), dz: parseInt(dz) });
       }
     });
+
+    // Run Go Deadlock Resolver
+    const resolution = resolveDeadlocks(requestedTasks);
+    
+    // Save paused tasks to queue
+    setPendingTasks(resolution.paused);
+
+    // Only dispatch active safe tasks
+    resolution.active.forEach(t => forceStartMission(parseInt(t.id), t.px, t.pz, t.dx, t.dz));
   };
 
   const assignRandomMission = useCallback((bot: RobotState) => {
+    // Basic assignment without passing through global resolver for individual auto-ticks
+    // However, to keep it safe, we check if it conflicts with active reserved coordinates
     let px: number, pz: number, dx: number, dz: number;
     do {
       px = Math.floor(Math.random() * GRID_SIZE);
       pz = Math.floor(Math.random() * GRID_SIZE);
     } while (STATIC_GRID[px][pz] === 1 || (px === bot.x && pz === bot.z));
-    
     do {
       dx = Math.floor(Math.random() * GRID_SIZE);
       dz = Math.floor(Math.random() * GRID_SIZE);
     } while (STATIC_GRID[dx][dz] === 1 || (dx === px && dz === pz));
 
-    startMission(bot.id, px, pz, dx, dz);
-  }, [startMission]);
+    forceStartMission(bot.id, px, pz, dx, dz);
+  }, [forceStartMission]);
 
   /* ─── Demo Deadlock Handlers ─── */
   const demoSwapDeadlock = useCallback(() => {
@@ -281,11 +371,15 @@ const SimulationView = () => {
       return { ...r, status: 'DONE', path: [] }; // Halt others
     }));
     setTimeout(() => {
-        // Instantly force them to step onto each other's spaces
-        startMission(0, 15, 28, 15, 28);
-        startMission(1, 14, 28, 14, 28);
+        const tasks = [
+            { id: "0", px: 15, pz: 28, dx: 15, dz: 28 },
+            { id: "1", px: 14, pz: 28, dx: 14, dz: 28 }
+        ];
+        const res = resolveDeadlocks(tasks);
+        setPendingTasks(res.paused);
+        res.active.forEach(t => forceStartMission(parseInt(t.id), t.px, t.pz, t.dx, t.dz));
     }, 150);
-  }, [startMission]);
+  }, [forceStartMission]);
 
   const demoSameCellDeadlock = useCallback(() => {
     setIsAuto(false);
@@ -295,10 +389,15 @@ const SimulationView = () => {
       return { ...r, status: 'DONE', path: [] }; // Halt others
     }));
     setTimeout(() => {
-        startMission(0, 15, 1, 0, 1);
-        startMission(1, 15, 1, 0, 1);
+        const tasks = [
+            { id: "0", px: 15, pz: 1, dx: 0, dz: 1 },
+            { id: "1", px: 15, pz: 1, dx: 0, dz: 1 }
+        ];
+        const res = resolveDeadlocks(tasks);
+        setPendingTasks(res.paused);
+        res.active.forEach(t => forceStartMission(parseInt(t.id), t.px, t.pz, t.dx, t.dz));
     }, 150);
-  }, [startMission]);
+  }, [forceStartMission]);
 
   /* ─── Autonomous Mode Engine ─── */
   useEffect(() => {
@@ -363,6 +462,17 @@ const SimulationView = () => {
               const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget);
               return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false };
             } else {
+              // Task finished! Check pending queue to awaken waiters!
+              setPendingTasks(currentPending => {
+                if (currentPending.length > 0) {
+                    const next = currentPending[0];
+                    console.log(`Awakening waiting Robot #${next.id} from queue!`);
+                    setTimeout(() => forceStartMission(parseInt(next.id), next.px, next.pz, next.dx, next.dz), 500);
+                    return currentPending.slice(1);
+                }
+                return currentPending;
+              });
+
               return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false };
             }
           }
@@ -495,7 +605,20 @@ const SimulationView = () => {
               </tbody>
             </table>
           </div>
-        </section>
+          </section>
+
+          <section className="panel glass sim-panel" style={{ flex: 1, marginTop: '15px' }}>
+            <div className="sim-panel-title">Waiting <span>Queue</span> (Deadlock Avoidance)</div>
+            {pendingTasks.length === 0 ? (
+                <div style={{ fontSize: '0.75rem', color: '#888', fontStyle: 'italic', marginTop: '10px' }}>No deadlocks preempted.</div>
+            ) : (
+                <ul style={{ fontSize: '0.75rem', paddingLeft: '15px', color: '#ffcc00' }}>
+                    {pendingTasks.map((t, idx) => (
+                        <li key={idx}>Unit #{t.id} paused matching target</li>
+                    ))}
+                </ul>
+            )}
+          </section>
       </aside>
     </div>
   );
