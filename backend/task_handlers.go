@@ -199,13 +199,13 @@ func processQueuedTasks() {
 	InitReservations()
 
 	for _, task := range allActiveTasks {
-		// 1. If task is already in progress, keep its destination reserved
-		if task.Status == "in_progress" { 
-			Reservations.ReserveAlways(task.PutX, task.PutY)
+		// If task is already in progress, skip path planning for now.
+		// The simulation is responsible for moving it along its existing path.
+		if task.Status == "in_progress" {
 			continue
 		}
 
-		// 2. If task was paused by deadlock resolution, mark it and skip planning for now
+		// If task was paused by deadlock resolution, mark it and skip planning for now
 		if task.Status == "waiting" {
 			log.Printf("[TaskWorker] Task %s paused due to deadlock resolution\n", task.TaskID)
 			DB.Exec("UPDATE tasks SET status = 'waiting' WHERE task_id = ?", task.TaskID)
