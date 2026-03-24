@@ -1,0 +1,108 @@
+.mapmanu-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 5, 10, 0.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.mapmanu-modal {
+  background: rgba(10, 15, 30, 0.95);
+  border: 1px solid #334466;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 0 30px rgba(0, 170, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.mapmanu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #334466;
+  padding-bottom: 15px;
+}
+
+.mapmanu-header h2 {
+  margin: 0;
+  color: #00aaff;
+  font-size: 1.5rem;
+  text-shadow: 0 0 10px rgba(0, 170, 255, 0.5);
+}
+
+.mapmanu-grid {
+  display: grid;
+  grid-template-columns: repeat(30, 15px);
+  grid-template-rows: repeat(30, 15px);
+  gap: 1px;
+  background-color: #333;
+  border: 2px solid #00aaff;
+  user-select: none;
+}
+
+.mapmanu-cell {
+  width: 15px;
+  height: 15px;
+  background-color: #1a1a1a;
+  transition: background-color 0.1s;
+}
+
+.mapmanu-cell:hover {
+  background-color: #444;
+}
+
+.mapmanu-cell.obstacle {
+  background-color: #2b5797;
+  box-shadow: inset 0 0 5px rgba(0,0,0,0.5);
+}
+
+.mapmanu-cell.obstacle:hover {
+  background-color: #3e78cc;
+}
+
+.mapmanu-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.mapmanu-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-manu {
+  background: #223344;
+  color: white;
+  border: 1px solid #445577;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.btn-manu:hover {
+  background: #334466;
+}
+
+.btn-manu.save {
+  background: #00cc66;
+  border-color: #00ff88;
+  color: #002200;
+}
+
+.btn-manu.save:hover {
+  background: #00ff88;
+  box-shadow: 0 0 15px rgba(0, 255, 136, 0.4);
+}
+
+.btn-manu.close {
+  background: #ff3333;
+  border-color: #ff6666;
+}
