@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// POST /robots
 func AddRobotHandler(c *gin.Context) {
 	var robot Robot
 	if err := c.ShouldBindJSON(&robot); err != nil {
@@ -15,7 +14,6 @@ func AddRobotHandler(c *gin.Context) {
 		return
 	}
 
-	// Set defaults
 	if robot.State == "" {
 		robot.State = "idle"
 	}
@@ -39,7 +37,6 @@ func AddRobotHandler(c *gin.Context) {
 	c.JSON(http.StatusCreated, robot)
 }
 
-// PATCH /robots/:id/state
 func UpdateRobotStateHandler(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -61,13 +58,11 @@ func UpdateRobotStateHandler(c *gin.Context) {
 		return
 	}
 
-	// Log the state change as a task potentially
 	AddLog(id, "State updated to: "+req.State)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Robot state updated successfully"})
 }
 
-// PATCH /robots/:id/priority
 func UpdateRobotPriorityHandler(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -94,7 +89,6 @@ func UpdateRobotPriorityHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Robot priority updated successfully"})
 }
 
-// GET /robots/:id
 func GetRobotByIDHandler(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
@@ -112,7 +106,6 @@ func GetRobotByIDHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, robot)
 }
 
-// GET /robots
 func GetAllRobotsHandler(c *gin.Context) {
 	robots, err := GetAllRobots()
 	if err != nil {
@@ -123,7 +116,6 @@ func GetAllRobotsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, robots)
 }
 
-// GET /logs
 func GetLogsHandler(c *gin.Context) {
 	logs, err := GetLogs()
 	if err != nil {
@@ -134,7 +126,6 @@ func GetLogsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, logs)
 }
 
-// POST /logs (Optional direct add)
 func AddLogHandler(c *gin.Context) {
 	var req struct {
 		BotID int64  `json:"bot_id" binding:"required"`

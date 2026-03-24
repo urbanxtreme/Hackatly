@@ -24,20 +24,25 @@ func main() {
 		log.Fatalf("Failed to create database: %v\n", err)
 	}
 
-	r := gin.Default() // Routes
+	r := gin.Default()
 	r.POST("/register", RegisterHandler)
 	r.POST("/login", LoginHandler)
 
-	// Robot Routes
-	r.POST("/robots", AddRobotHandler)
-	r.GET("/robots", GetAllRobotsHandler)
-	r.GET("/robots/:id", GetRobotByIDHandler)
-	r.PATCH("/robots/:id/state", UpdateRobotStateHandler)
-	r.PATCH("/robots/:id/priority", UpdateRobotPriorityHandler)
+	// Protected Routes
+	protected := r.Group("/")
+	protected.Use(AuthMiddleware())
+	{
+		// Robot Routes
+		protected.POST("/robots", AddRobotHandler)
+		protected.GET("/robots", GetAllRobotsHandler)
+		protected.GET("/robots/:id", GetRobotByIDHandler)
+		protected.PATCH("/robots/:id/state", UpdateRobotStateHandler)
+		protected.PATCH("/robots/:id/priority", UpdateRobotPriorityHandler)
 
-	// Log Routes
-	r.GET("/logs", GetLogsHandler)
-	r.POST("/logs", AddLogHandler)
+		// Log Routes
+		protected.GET("/logs", GetLogsHandler)
+		protected.POST("/logs", AddLogHandler)
+	}
 
 	fmt.Println("Server starting on http://localhost:3000")
 	if err := r.Run(":3000"); err != nil {
