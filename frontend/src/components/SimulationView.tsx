@@ -4,7 +4,7 @@ import { OrbitControls, Grid, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
 import TaskManager, { type ApiTask } from './TaskManager';
-import { completeTask, updateRobotPosition, addLog, addEfficiency } from '../api';
+import { completeTask, updateRobotPosition, addLog, addEfficiency, getMap } from '../api';
 import './SimulationView.css';
 
 /* ─── Simulation Configuration ─── */
@@ -21,7 +21,7 @@ const SPAWN_POINTS = [
 const heuristic = (a: { x: number; z: number }, b: { x: number; z: number }) => 
   Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 
-const astar = (start: { x: number; z: number }, goal: { x: number; z: number }, dynamicObstacles: Array<{x: number, z: number}> = []) => {
+const astar = (start: { x: number; z: number }, goal: { x: number; z: number }, dynamicObstacles: Array<{x: number, z: number}> = [], grid: number[][] = []) => {
   let openSet = [start];
   let cameFrom = new Map<string, { x: number; z: number }>();
   let gScore = new Map<string, number>();
@@ -53,7 +53,12 @@ const astar = (start: { x: number; z: number }, goal: { x: number; z: number }, 
     const neighbors = [
       { x: current.x + 1, z: current.z }, { x: current.x - 1, z: current.z },
       { x: current.x, z: current.z + 1 }, { x: current.x, z: current.z - 1 }
-    ].filter(n => n.x >= 0 && n.x < GRID_SIZE && n.z >= 0 && n.z < GRID_SIZE && STATIC_GRID[n.x][n.z] === 0 && !isObstacle(n.x, n.z));
+    ].filter(n => {
+      const isWithinBounds = n.x >= 0 && n.x < GRID_SIZE && n.z >= 0 && n.z < GRID_SIZE;
+      if (!isWithinBounds) return false;
+      const cellVal = (grid && grid.length > 0) ? grid[n.x][n.z] : STATIC_GRID[n.x][n.z];
+      return cellVal === 0 && !isObstacle(n.x, n.z);
+    });
 
     for (const n of neighbors) {
       const tentativeGScore = (gScore.get(toKey(current)) ?? Infinity) + 1;
@@ -135,21 +140,31 @@ const RobotModel = ({ robot, onSelect }: { robot: RobotState; onSelect: (r: Robo
   );
 };
 
-const WarehouseEnvironment = () => {
+const WarehouseEnvironment = ({ grid = [] }: { grid: number[][] }) => {
   const racks = useMemo(() => {
-    const items = [];
-    for (let x = 3; x < GRID_SIZE - 3; x += 5) {
-      for (let z = 3; z < GRID_SIZE - 3; z++) {
-        if (z % 8 !== 0 && z % 8 !== 1) {
-          items.push({ x, z }, { x: x + 1, z });
+    const items: {x: number, z: number}[] = [];
+    if (grid.length === 0) {
+      // Fallback to legacy hardcoded racks if no grid provided
+      for (let x = 3; x < GRID_SIZE - 3; x += 5) {
+        for (let z = 3; z < GRID_SIZE - 3; z++) {
+          if (z % 8 !== 0 && z % 8 !== 1) {
+            items.push({ x, z }, { x: x + 1, z });
+          }
         }
       }
-    }
-    for (let x = 5; x <= 25; x++) {
-      items.push({ x, z: 27 }, { x, z: 29 });
+      for (let x = 5; x <= 25; x++) {
+        items.push({ x, z: 27 }, { x, z: 29 });
+      }
+    } else {
+      // Use dynamic grid from backend
+      grid.forEach((row, x) => {
+        row.forEach((val, z) => {
+          if (val === 1) items.push({ x, z });
+        });
+      });
     }
     return items;
-  }, []);
+  }, [grid]);
 
   return (
     <group>
@@ -196,14 +211,24 @@ const WarehouseEnvironment = () => {
 /* ─── Main Simulation Component ─── */
 const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: SimulationViewProps) => {
   const [robots, setRobots] = useState<RobotState[]>([]);
+  const [grid, setGrid] = useState<number[][]>([]);
   const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
   
   const [selectedRobot, setSelectedRobot] = useState<RobotState | null>(null);
   const [hasDeadlock, setHasDeadlock] = useState(false);
   const [physicalDeadlockTime, setPhysicalDeadlockTime] = useState<number | null>(null);
+  const physicalDeadlockTimeRef = useRef<number | null>(null);
+  useEffect(() => { physicalDeadlockTimeRef.current = physicalDeadlockTime; }, [physicalDeadlockTime]);
   
   const robotsRef = useRef(robots);
   useEffect(() => { robotsRef.current = robots; }, [robots]);
+
+  /* ─── Fetch Map from Backend ─── */
+  useEffect(() => {
+    getMap().then(data => {
+      if (data && data.map) setGrid(data.map);
+    }).catch(err => console.error("SimView: Failed to load map:", err));
+  }, []);
 
   /* ─── Sync Robots with Backend ─── */
   useEffect(() => {
@@ -353,7 +378,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           const dx = backendTask.put_x;
           const dz = backendTask.put_y;
 
-          const testPath = astar({ x: bot.x, z: bot.z }, { x: px, z: pz });
+          const testPath = astar({ x: bot.x, z: bot.z }, { x: px, z: pz }, [], grid);
           if (testPath.length > 0) {
             updatedList[idleBotIndex] = {
               ...bot,
@@ -372,7 +397,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
       }
       return hasChanges ? updatedList : prev;
     });
-  }, [tasks, completedTaskIds]);
+  }, [tasks, completedTaskIds, grid]);
 
   /* ─── Queue Delay Tracking (While API Resolves Deadlocks) ─── */
   useEffect(() => {
@@ -405,12 +430,9 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
       setRobots(prev => {
         // If we are actively frozen, don't move bots
-        let isFrozen = false;
-        setPhysicalDeadlockTime(time => {
-          isFrozen = time !== null && time > 0;
-          return time;
-        });
-        if (isFrozen) return prev;
+        if (physicalDeadlockTimeRef.current !== null && physicalDeadlockTimeRef.current > 0) {
+          return prev;
+        }
 
         let needsUpdate = false;
         
@@ -481,7 +503,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
                   return {x: bot.x, z: bot.z}; 
                };
                const wt = findWait();
-               const wtPath = astar({x: bot.x, z: bot.z}, wt);
+               const wtPath = astar({x: bot.x, z: bot.z}, wt, [], grid);
                return { ...bot, missionPhase: 'TO_WAIT' as const, status: 'BLOCKED' as const, path: wtPath, pathIndex: 1, consecutiveBlocks: 5, lastLogEvent: { msg: `Target blocked by parking! Evicting IDLE robot to dynamically assigned location [${wt.x}, ${wt.z}]`, id: Date.now() + Math.random() } };
             }
             if (blockedBy.has(bot.id) || blockedByIdle.has(bot.id)) {
@@ -516,7 +538,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
                 // Dynamic Repathing! Calculate around existing standing robots
                 const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
                 const target = bot.path[bot.path.length - 1]; 
-                const newPath = astar({x: bot.x, z: bot.z}, target, obstacles);
+                const newPath = astar({x: bot.x, z: bot.z}, target, obstacles, grid);
                 if (newPath.length > 0) {
                   logEvt = { msg: `Obstacle detected! Rerouting dynamically around [${obstacles[0]?.x}, ${obstacles[0]?.z}]`, id: Date.now() + Math.random() };
                   needsUpdate = true;
@@ -533,7 +555,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           } else {
             needsUpdate = true;
             if (bot.missionPhase === 'TO_PICK') {
-              const nextPath = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) });
+              const nextPath = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], grid);
               return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
             } else if (bot.missionPhase === 'TO_DROP') {
               const findWait = () => {
@@ -545,7 +567,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
                 return {x: bot.x, z: bot.z}; 
               };
               const waitTarget = findWait();
-              const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget);
+              const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget, [], grid);
               return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
             } else if (bot.missionPhase === 'TO_WAIT') {
               return { ...bot, missionPhase: 'FINISHING' as const, status: 'IDLE' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
@@ -602,7 +624,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           <color attach="background" args={['#050510']} />
           <ambientLight intensity={0.5} />
           <directionalLight position={[20, 50, 20]} intensity={1} />
-          <WarehouseEnvironment />
+          <WarehouseEnvironment grid={grid} />
           {robots.map(r => <RobotModel key={r.id} robot={r} onSelect={setSelectedRobot} />)}
           <OrbitControls target={[CENTER_OFFSET, 0, CENTER_OFFSET]} />
         </Canvas>
