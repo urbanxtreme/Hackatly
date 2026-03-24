@@ -101,16 +101,28 @@ func CompleteTaskHandler(c *gin.Context) {
 		return
 	}
 
-	result, err := DB.Exec("UPDATE tasks SET status = 'completed' WHERE task_id = ?", taskID)
+	_, err := DB.Exec("UPDATE tasks SET status = 'completed' WHERE task_id = ?", taskID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	rowsAffected, _ := result.RowsAffected()
-	if rowsAffected == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
-		return
+	// Wake up any tasks that were paused ("waiting") due to deadlocks,
+	// because the grid structure has now changed and they might have a clear path.
+	rows, err := DB.Query("SELECT task_id, get_x, get_y, put_x, put_y, priority, status, created_at FROM tasks WHERE status = 'waiting'")
+	if err == nil {
+		defer rows.Close()
+		var waitingTasks []Task
+		for rows.Next() {
+			var t Task
+			if err := rows.Scan(&t.TaskID, &t.GetX, &t.GetY, &t.PutX, &t.PutY, &t.Priority, &t.Status, &t.CreatedAt); err == nil {
+				waitingTasks = append(waitingTasks, t)
+			}
+		}
+		for _, t := range waitingTasks {
+			log.Printf("[TaskWorker] Re-queueing waiting task %s after another task completed", t.TaskID)
+			PushTask(t)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "task completed", "task_id": taskID})

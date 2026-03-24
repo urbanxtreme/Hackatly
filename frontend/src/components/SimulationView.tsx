@@ -21,7 +21,7 @@ const SPAWN_POINTS = [
 const heuristic = (a: { x: number; z: number }, b: { x: number; z: number }) => 
   Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 
-const astar = (start: { x: number; z: number }, goal: { x: number; z: number }) => {
+const astar = (start: { x: number; z: number }, goal: { x: number; z: number }, dynamicObstacles: Array<{x: number, z: number}> = []) => {
   let openSet = [start];
   let cameFrom = new Map<string, { x: number; z: number }>();
   let gScore = new Map<string, number>();
@@ -30,6 +30,10 @@ const astar = (start: { x: number; z: number }, goal: { x: number; z: number }) 
   const toKey = (p: { x: number; z: number }) => `${p.x},${p.z}`;
   gScore.set(toKey(start), 0);
   fScore.set(toKey(start), heuristic(start, goal));
+
+  const isObstacle = (nx: number, nz: number) => {
+    return dynamicObstacles.some(obs => obs.x === nx && obs.z === nz);
+  };
 
   while (openSet.length > 0) {
     openSet.sort((a, b) => (fScore.get(toKey(a)) || Infinity) - (fScore.get(toKey(b)) || Infinity));
@@ -49,7 +53,7 @@ const astar = (start: { x: number; z: number }, goal: { x: number; z: number }) 
     const neighbors = [
       { x: current.x + 1, z: current.z }, { x: current.x - 1, z: current.z },
       { x: current.x, z: current.z + 1 }, { x: current.x, z: current.z - 1 }
-    ].filter(n => n.x >= 0 && n.x < GRID_SIZE && n.z >= 0 && n.z < GRID_SIZE && STATIC_GRID[n.x][n.z] === 0);
+    ].filter(n => n.x >= 0 && n.x < GRID_SIZE && n.z >= 0 && n.z < GRID_SIZE && STATIC_GRID[n.x][n.z] === 0 && !isObstacle(n.x, n.z));
 
     for (const n of neighbors) {
       const tentativeGScore = (gScore.get(toKey(current)) ?? Infinity) + 1;
@@ -73,7 +77,7 @@ interface RobotState {
   x: number;
   z: number;
   color: string;
-  missionPhase: 'IDLE' | 'TO_PICK' | 'TO_DROP' | 'TO_WAIT' | 'FAILED';
+  missionPhase: 'IDLE' | 'TO_PICK' | 'TO_DROP' | 'TO_WAIT' | 'FINISHING' | 'FAILED';
   status: 'IDLE' | 'MOVING' | 'BLOCKED' | 'DONE';
   path: { x: number; z: number }[];
   pathIndex: number;
@@ -81,7 +85,9 @@ interface RobotState {
   missionData: { px: string, pz: string, dx: string, dz: string };
   currentTaskId?: string;
   metrics: { queuedTicks: number; blockedTicks: number; activeTicks: number; };
+  consecutiveBlocks: number;
 }
+
 
 interface SimulationViewProps {
   apiRobots?: any[];
@@ -208,7 +214,8 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
             pathIndex: 0,
             payloadVisible: false,
             missionData: { px: '', pz: '', dx: '', dz: '' },
-            metrics: { queuedTicks: 0, blockedTicks: 0, activeTicks: 0 }
+            metrics: { queuedTicks: 0, blockedTicks: 0, activeTicks: 0 },
+            consecutiveBlocks: 0
           });
           hasChanges = true;
         }
@@ -221,6 +228,34 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
       return hasChanges ? filteredFleet : prev;
     });
   }, [apiRobots]);
+
+  /* ─── API Side Effects (Isolated from State Updaters) ─── */
+  const apiCallInProgress = useRef(new Set<number>());
+  useEffect(() => {
+    robots.forEach(bot => {
+      if (bot.missionPhase === 'FINISHING' && bot.currentTaskId && !apiCallInProgress.current.has(bot.id)) {
+        apiCallInProgress.current.add(bot.id);
+        const tid = bot.currentTaskId;
+        setCompletedTaskIds(prev => new Set(prev).add(tid));
+                
+        // Execute API Calls
+        Promise.allSettled([
+          completeTask(tid),
+          updateRobotPosition(bot.id, bot.x, bot.z)
+        ]).then(() => {
+          setRobots(prev => prev.map(r => r.id === bot.id ? { 
+            ...r, 
+            status: 'DONE', 
+            missionPhase: 'IDLE', 
+            payloadVisible: false, 
+            currentTaskId: undefined,
+            consecutiveBlocks: 0 
+          } : r));
+          apiCallInProgress.current.delete(bot.id);
+        });
+      }
+    });
+  }, [robots]);
 
   /* ─── Backend Integration & Live Task Assignment ─── */
   useEffect(() => {
@@ -326,17 +361,27 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
             const occupied = prev.some(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
             
             if (occupied) {
+              const blocks = (bot.consecutiveBlocks || 0) + 1;
+              if (blocks > 4) {
+                // Dynamic Repathing! Calculate around existing standing robots
+                const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
+                const target = bot.path[bot.path.length - 1]; 
+                const newPath = astar({x: bot.x, z: bot.z}, target, obstacles);
+                if (newPath.length > 0) {
+                  return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0 };
+                }
+              }
               if (bot.status !== 'BLOCKED') needsUpdate = true;
-              return { ...bot, status: 'BLOCKED' as const, metrics: m };
+              return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: blocks };
             } else {
               needsUpdate = true;
-              return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m };
+              return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0 };
             }
           } else {
             needsUpdate = true;
             if (bot.missionPhase === 'TO_PICK') {
               const nextPath = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) });
-              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m };
+              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m, consecutiveBlocks: 0 };
             } else if (bot.missionPhase === 'TO_DROP') {
               const findWait = () => {
                 const offsets = [ {dx:2, dz:0}, {dx:-2, dz:0}, {dx:0, dz:2}, {dx:0, dz:-2}, {dx:2, dz:2}, {dx:-2, dz:-2} ];
@@ -348,31 +393,11 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
               };
               const waitTarget = findWait();
               const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget);
-              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false, metrics: m };
+              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false, metrics: m, consecutiveBlocks: 0 };
+            } else if (bot.missionPhase === 'TO_WAIT') {
+              return { ...bot, missionPhase: 'FINISHING' as const, status: 'IDLE' as const, metrics: m, consecutiveBlocks: 0 };
             } else {
-              if (bot.currentTaskId) {
-                const tid = bot.currentTaskId;
-                setCompletedTaskIds(prev => new Set(prev).add(tid));
-                
-                // Make API calls resilient — if backend fails (e.g., old binary 404),
-                // the frontend should still free the robot locally so it doesn't get stuck.
-                completeTask(tid).catch(err => {
-                  console.error('[SimulationView] API Error completing task:', err);
-                  console.warn('Is the backend compiled with the latest complete endpoint?');
-                });
-                
-                updateRobotPosition(bot.id, bot.x, bot.z).catch(err => {
-                  console.error('[SimulationView] API Error syncing position:', err);
-                });
-              }
-              return { 
-                ...bot, 
-                status: 'DONE' as const, 
-                missionPhase: 'IDLE' as const, 
-                payloadVisible: false, 
-                currentTaskId: undefined, 
-                metrics: m 
-              };
+              return bot; // Already finishing or idle
             }
           }
         });
