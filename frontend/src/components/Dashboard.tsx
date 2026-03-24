@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardCanvas from './DashboardCanvas';
+import SimulationView from './SimulationView';
 import './Dashboard.css';
 
 /* ─── Types ─── */
@@ -84,6 +85,7 @@ const Dashboard = () => {
 
   const sidebarItems = [
     { key: 'overview', icon: '📊', label: 'Overview' },
+    { key: 'simulation', icon: '🚀', label: 'Simulation' },
     { key: 'fleet', icon: '🤖', label: 'Fleet' },
     { key: 'tasks', icon: '📋', label: 'Tasks' },
     { key: 'analytics', icon: '📈', label: 'Analytics' },
@@ -92,10 +94,12 @@ const Dashboard = () => {
 
   return (
     <div className="dashboard">
-      {/* ─── Abstract 3D Background ─── */}
-      <div className="dashboard-bg-3d">
-        <DashboardCanvas />
-      </div>
+      {/* ─── Floating 3D Background (Only for Overview) ─── */}
+      {activeTab === 'overview' && (
+        <div className="dashboard-bg-3d">
+          <DashboardCanvas />
+        </div>
+      )}
 
       {/* ─── Sidebar ─── */}
       <aside className="sidebar">
@@ -127,8 +131,8 @@ const Dashboard = () => {
           <header className="dashboard-header">
             <div className="header-row">
               <div>
-                <h1>Command Center</h1>
-                <p>Warehouse Alpha &bull; Live Monitoring</p>
+                <h1>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Center</h1>
+                <p>Warehouse Alpha &bull; Live Intelligence</p>
               </div>
               <button className="theme-btn-dash" onClick={() => setIsDark(!isDark)} title="Toggle theme">
                 {isDark ? '☀️' : '🌙'}
@@ -136,159 +140,168 @@ const Dashboard = () => {
             </div>
           </header>
 
-          {/* ─── Stats Row ─── */}
-          <section className="stats-grid">
-            <div className="stat-card glass accent-border">
-              <div className="stat-icon">🤖</div>
-              <div className="stat-info">
-                <div className="stat-label">Active Robots</div>
-                <div className="stat-value">4<span className="muted">/6</span></div>
-              </div>
-              <div className="stat-change positive">+2 today</div>
-            </div>
-            <div className="stat-card glass">
-              <div className="stat-icon">📋</div>
-              <div className="stat-info">
-                <div className="stat-label">Pending Tasks</div>
-                <div className="stat-value">{tasks.length}</div>
-              </div>
-              <div className="stat-change negative">3 urgent</div>
-            </div>
-            <div className="stat-card glass">
-              <div className="stat-icon">⚡</div>
-              <div className="stat-info">
-                <div className="stat-label">Efficiency</div>
-                <div className="stat-value">94<span className="muted">%</span></div>
-              </div>
-              <div className="stat-change positive">+2.3%</div>
-            </div>
-            <div className="stat-card glass danger-border">
-              <div className="stat-icon">🚨</div>
-              <div className="stat-info">
-                <div className="stat-label">Alerts</div>
-                <div className="stat-value critical">1</div>
-              </div>
-              <div className="stat-change negative">RX-6 stuck</div>
-            </div>
-          </section>
-
-          {/* ─── Main 2-Column Grid ─── */}
-          <div className="content-grid">
-            {/* Fleet Panel */}
-            <section className="panel glass">
-              <div className="panel-header">
-                <h2 className="panel-title">Fleet Monitoring</h2>
-                <span className="badge live">● LIVE</span>
-              </div>
-              <div className="table-scroll">
-                <table className="fleet-table">
-                  <thead>
-                    <tr>
-                      <th>Unit</th>
-                      <th>Status</th>
-                      <th>Zone</th>
-                      <th>Battery</th>
-                      <th>Current Task</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ROBOTS.map((robot) => (
-                      <tr key={robot.id}>
-                        <td className="unit-cell">{robot.id}</td>
-                        <td>
-                          <span className={`status-chip ${robot.status}`}>
-                            <span className="status-dot" />
-                            {robot.status}
-                          </span>
-                        </td>
-                        <td>{robot.zone}</td>
-                        <td>
-                          <div className="battery-wrap">
-                            <div className="battery-bar">
-                              <div className="battery-fill" style={{ width: `${robot.battery}%`, background: batteryColor(robot.battery) }} />
-                            </div>
-                            <span className="battery-pct">{robot.battery}%</span>
-                          </div>
-                        </td>
-                        <td className="task-cell">{robot.task}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            {/* Task Manager Panel */}
-            <section className="panel glass">
-              <div className="panel-header">
-                <h2 className="panel-title">Task Manager</h2>
-                <span className="badge count">{tasks.length} tasks</span>
-              </div>
-
-              {/* Add Task Form */}
-              <div className="task-form">
-                <div className="task-form-row">
-                  <input className="task-input" placeholder="Origin (e.g. Shelf A3)" value={newFrom} onChange={(e) => setNewFrom(e.target.value)} />
-                  <span className="form-arrow">→</span>
-                  <input className="task-input" placeholder="Destination (e.g. Bay 7)" value={newTo} onChange={(e) => setNewTo(e.target.value)} />
+          {activeTab === 'overview' ? (
+            <>
+              {/* ─── Stats Row ─── */}
+              <section className="stats-grid">
+                <div className="stat-card glass accent-border">
+                  <div className="stat-icon">🤖</div>
+                  <div className="stat-info">
+                    <div className="stat-label">Active Robots</div>
+                    <div className="stat-value">4<span className="muted">/6</span></div>
+                  </div>
+                  <div className="stat-change positive">+2 today</div>
                 </div>
-                <div className="task-form-row">
-                  <select className="task-select" value={newPriority} onChange={(e) => setNewPriority(e.target.value as 'high' | 'medium' | 'low')}>
-                    <option value="high">🔴 High Priority</option>
-                    <option value="medium">🟡 Medium Priority</option>
-                    <option value="low">🟢 Low Priority</option>
-                  </select>
-                  <button className="task-add-btn" onClick={addTask}>+ Deploy Task</button>
+                <div className="stat-card glass">
+                  <div className="stat-icon">📋</div>
+                  <div className="stat-info">
+                    <div className="stat-label">Pending Tasks</div>
+                    <div className="stat-value">{tasks.length}</div>
+                  </div>
+                  <div className="stat-change negative">3 urgent</div>
                 </div>
-              </div>
+                <div className="stat-card glass">
+                  <div className="stat-icon">⚡</div>
+                  <div className="stat-info">
+                    <div className="stat-label">Efficiency</div>
+                    <div className="stat-value">94<span className="muted">%</span></div>
+                  </div>
+                  <div className="stat-change positive">+2.3%</div>
+                </div>
+                <div className="stat-card glass danger-border">
+                  <div className="stat-icon">🚨</div>
+                  <div className="stat-info">
+                    <div className="stat-label">Alerts</div>
+                    <div className="stat-value critical">1</div>
+                  </div>
+                  <div className="stat-change negative">RX-6 stuck</div>
+                </div>
+              </section>
 
-              {/* Task List */}
-              <div className="task-list">
-                {tasks.map((task) => (
-                  <div key={task.id} className={`task-item priority-${task.priority}`}>
-                    <div className="task-left">
-                      <span className={`priority-indicator ${task.priority}`} />
-                      <div className="task-details">
-                        <span className="task-route">{task.from} → {task.to}</span>
-                        <span className="task-robot">{task.robot}</span>
-                      </div>
+              {/* ─── Main 2-Column Grid ─── */}
+              <div className="content-grid">
+                {/* Fleet Panel */}
+                <section className="panel glass">
+                  <div className="panel-header">
+                    <h2 className="panel-title">Fleet Monitoring</h2>
+                    <span className="badge live">● LIVE</span>
+                  </div>
+                  <div className="table-scroll">
+                    <table className="fleet-table">
+                      <thead>
+                        <tr>
+                          <th>Unit</th>
+                          <th>Status</th>
+                          <th>Zone</th>
+                          <th>Battery</th>
+                          <th>Current Task</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ROBOTS.map((robot) => (
+                          <tr key={robot.id}>
+                            <td className="unit-cell">{robot.id}</td>
+                            <td>
+                              <span className={`status-chip ${robot.status}`}>
+                                <span className="status-dot" />
+                                {robot.status}
+                              </span>
+                            </td>
+                            <td>{robot.zone}</td>
+                            <td>
+                              <div className="battery-wrap">
+                                <div className="battery-bar">
+                                  <div className="battery-fill" style={{ width: `${robot.battery}%`, background: batteryColor(robot.battery) }} />
+                                </div>
+                                <span className="battery-pct">{robot.battery}%</span>
+                              </div>
+                            </td>
+                            <td className="task-cell">{robot.task}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                {/* Task Manager Panel */}
+                <section className="panel glass">
+                  <div className="panel-header">
+                    <h2 className="panel-title">Task Manager</h2>
+                    <span className="badge count">{tasks.length} tasks</span>
+                  </div>
+
+                  <div className="task-form">
+                    <div className="task-form-row">
+                      <input className="task-input" placeholder="Origin" value={newFrom} onChange={(e) => setNewFrom(e.target.value)} />
+                      <span className="form-arrow">→</span>
+                      <input className="task-input" placeholder="Destination" value={newTo} onChange={(e) => setNewTo(e.target.value)} />
                     </div>
-                    <div className="task-right">
-                      <select
-                        className={`priority-select ${task.priority}`}
-                        value={task.priority}
-                        onChange={(e) => updatePriority(task.id, e.target.value as 'high' | 'medium' | 'low')}
-                      >
+                    <div className="task-form-row">
+                      <select className="task-select" value={newPriority} onChange={(e) => setNewPriority(e.target.value as 'high' | 'medium' | 'low')}>
                         <option value="high">🔴 High</option>
                         <option value="medium">🟡 Medium</option>
                         <option value="low">🟢 Low</option>
                       </select>
-                      <button className="task-remove" onClick={() => removeTask(task.id)} title="Remove task">×</button>
+                      <button className="task-add-btn" onClick={addTask}>+ Deploy</button>
                     </div>
                   </div>
-                ))}
-              </div>
-            </section>
-          </div>
 
-          {/* ─── Activity Feed ─── */}
-          <section className="panel glass activity-panel">
-            <div className="panel-header">
-              <h2 className="panel-title">Activity Feed</h2>
-              <span className="badge live">● LIVE</span>
-            </div>
-            <div className="activity-grid">
-              {ACTIVITIES.map((a, i) => (
-                <div key={i} className="activity-item">
-                  <div className="activity-icon">{a.icon}</div>
-                  <div className="activity-body">
-                    <span dangerouslySetInnerHTML={{ __html: a.text }} />
-                    <span className="activity-time">{a.time}</span>
+                  <div className="task-list">
+                    {tasks.map((task) => (
+                      <div key={task.id} className={`task-item priority-${task.priority}`}>
+                        <div className="task-left">
+                          <span className={`priority-indicator ${task.priority}`} />
+                          <div className="task-details">
+                            <span className="task-route">{task.from} → {task.to}</span>
+                            <span className="task-robot">{task.robot}</span>
+                          </div>
+                        </div>
+                        <div className="task-right">
+                          <select
+                            className={`priority-select ${task.priority}`}
+                            value={task.priority}
+                            onChange={(e) => updatePriority(task.id, e.target.value as 'high' | 'medium' | 'low')}
+                          >
+                            <option value="high">🔴 High</option>
+                            <option value="medium">🟡 Medium</option>
+                            <option value="low">🟢 Low</option>
+                          </select>
+                          <button className="task-remove" onClick={() => removeTask(task.id)} title="Remove task">×</button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                </section>
+              </div>
+
+              {/* ─── Activity Feed ─── */}
+              <section className="panel glass activity-panel">
+                <div className="panel-header">
+                  <h2 className="panel-title">Activity Feed</h2>
+                  <span className="badge live">● LIVE</span>
                 </div>
-              ))}
+                <div className="activity-grid">
+                  {ACTIVITIES.map((a, i) => (
+                    <div key={i} className="activity-item">
+                      <div className="activity-icon">{a.icon}</div>
+                      <div className="activity-body">
+                        <span dangerouslySetInnerHTML={{ __html: a.text }} />
+                        <span className="activity-time">{a.time}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </>
+          ) : activeTab === 'simulation' ? (
+            <SimulationView />
+          ) : (
+            <div className="panel glass" style={{ padding: '4rem', textAlign: 'center' }}>
+              <h2 className="panel-title">Coming Soon</h2>
+              <p style={{ color: 'var(--text-muted)' }}>The {activeTab} module is under development.</p>
             </div>
-          </section>
+          )}
         </main>
       </div>
     </div>
