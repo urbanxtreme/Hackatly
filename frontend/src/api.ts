@@ -1,6 +1,6 @@
 /* ─── Centralized API Client ─── */
 
-const BASE_URL = 'http://localhost:8080';
+const BASE_URL = 'https://uncomfortably-unshut-jaclyn.ngrok-free.dev';
 
 /* ─── Token helpers ─── */
 export const getToken = () => localStorage.getItem('roboflow-token');

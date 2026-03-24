@@ -80,6 +80,7 @@ interface RobotState {
   payloadVisible: boolean;
   missionData: { px: string, pz: string, dx: string, dz: string };
   currentTaskId?: string;
+  metrics: { queuedTicks: number; blockedTicks: number; activeTicks: number; };
 }
 
 interface SimulationViewProps {
@@ -206,7 +207,8 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
             path: [],
             pathIndex: 0,
             payloadVisible: false,
-            missionData: { px: '', pz: '', dx: '', dz: '' }
+            missionData: { px: '', pz: '', dx: '', dz: '' },
+            metrics: { queuedTicks: 0, blockedTicks: 0, activeTicks: 0 }
           });
           hasChanges = true;
         }
@@ -265,6 +267,18 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
     });
   }, [tasks, completedTaskIds]);
 
+  /* ─── Queue Delay Tracking (While API Resolves Deadlocks) ─── */
+  useEffect(() => {
+    if (!hasDeadlock) return;
+    const timer = setInterval(() => {
+      setRobots(prev => prev.map(bot => ({
+        ...bot,
+        metrics: { ...bot.metrics, queuedTicks: bot.metrics.queuedTicks + 1 }
+      })));
+    }, TICK_INTERVAL);
+    return () => clearInterval(timer);
+  }, [hasDeadlock]);
+
   /* ─── Simulation Tick Engine ─── */
   useEffect(() => {
     if (hasDeadlock) return;
@@ -275,22 +289,26 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
         const nextFleet = prev.map(bot => {
           if (bot.status !== 'MOVING' && bot.status !== 'BLOCKED') return bot;
 
+          let m = { ...bot.metrics };
+          if (bot.status === 'MOVING') m.activeTicks += 1;
+          if (bot.status === 'BLOCKED') m.blockedTicks += 1;
+
           if (bot.pathIndex < bot.path.length) {
             const nextStep = bot.path[bot.pathIndex];
             const occupied = prev.some(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
             
             if (occupied) {
               if (bot.status !== 'BLOCKED') needsUpdate = true;
-              return { ...bot, status: 'BLOCKED' as const };
+              return { ...bot, status: 'BLOCKED' as const, metrics: m };
             } else {
               needsUpdate = true;
-              return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const };
+              return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m };
             }
           } else {
             needsUpdate = true;
             if (bot.missionPhase === 'TO_PICK') {
               const nextPath = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) });
-              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true };
+              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m };
             } else if (bot.missionPhase === 'TO_DROP') {
               const findWait = () => {
                 const offsets = [ {dx:2, dz:0}, {dx:-2, dz:0}, {dx:0, dz:2}, {dx:0, dz:-2}, {dx:2, dz:2}, {dx:-2, dz:-2} ];
@@ -302,7 +320,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
               };
               const waitTarget = findWait();
               const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget);
-              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false };
+              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false, metrics: m };
             } else {
               if (bot.currentTaskId) {
                 const tid = bot.currentTaskId;
@@ -312,7 +330,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
                 // Sync position to backend
                 updateRobotPosition(bot.id, bot.x, bot.z).catch(err => console.error('[SimulationView] Failed to sync position:', err));
               }
-              return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false, currentTaskId: undefined };
+              return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false, currentTaskId: undefined, metrics: m };
             }
           }
         });
@@ -370,6 +388,27 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
                   <label>Phase</label>
                   <span>{selectedRobot.missionPhase}</span>
                 </div>
+                <div className="tele-item" style={{ borderTop: '1px solid #444', paddingTop: '5px' }}>
+                  <label style={{ color: '#00cc66' }}>Active Time</label>
+                  <span>{(selectedRobot.metrics.activeTicks * 0.25).toFixed(1)}s</span>
+                </div>
+                <div className="tele-item">
+                  <label style={{ color: '#ffcc00' }}>Queue Delay</label>
+                  <span>{(selectedRobot.metrics.queuedTicks * 0.25).toFixed(1)}s</span>
+                </div>
+                <div className="tele-item">
+                  <label style={{ color: '#ff3333' }}>Traffic Delay</label>
+                  <span>{(selectedRobot.metrics.blockedTicks * 0.25).toFixed(1)}s</span>
+                </div>
+                <div className="tele-item">
+                  <label style={{ color: '#00aaff', fontWeight: 'bold' }}>Efficiency</label>
+                  <span style={{ fontWeight: 'bold' }}>{(() => {
+                    const m = selectedRobot.metrics;
+                    const total = m.activeTicks + m.queuedTicks + m.blockedTicks;
+                    if (total === 0) return '100%';
+                    return ((m.activeTicks / total) * 100).toFixed(1) + '%';
+                  })()}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -377,6 +416,25 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
       </div>
 
       <aside className={`sim-terminal ${hasDeadlock ? 'blurred' : ''}`}>
+        <div className="panel glass" style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '15px', padding: '15px' }}>
+          <div className="sim-panel-title" style={{ fontSize: '1rem' }}>Global <span>Efficiency</span></div>
+          <div style={{ textAlign: 'center', margin: '5px 0' }}>
+            <span style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#00aaff', textShadow: '0 0 10px rgba(0,170,255,0.5)' }}>
+              {(() => {
+                let act = 0, q = 0, blk = 0;
+                robots.forEach(r => { act += r.metrics.activeTicks; q += r.metrics.queuedTicks; blk += r.metrics.blockedTicks; });
+                const tot = act + q + blk;
+                return tot === 0 ? '100.0%' : ((act / tot) * 100).toFixed(1) + '%';
+              })()}
+            </span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 'bold', opacity: 0.8, borderTop: '1px solid #333', paddingTop: '10px' }}>
+            <span style={{ color: '#00cc66' }}>Active: {robots.reduce((s, r) => s + r.metrics.activeTicks, 0)}ticks</span>
+            <span style={{ color: '#ffcc00' }}>Wait: {robots.reduce((s, r) => s + r.metrics.queuedTicks, 0)}ticks</span>
+            <span style={{ color: '#ff3333' }}>Jams: {robots.reduce((s, r) => s + r.metrics.blockedTicks, 0)}ticks</span>
+          </div>
+        </div>
+
         <div className="panel glass" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <TaskManager 
             tasks={tasks} 
