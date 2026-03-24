@@ -1,9 +1,10 @@
+```
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
-import TaskManager, { type ApiTask } from './TaskManager';
+import TaskManager, { type ApiTask, type TaskManagerProps } from './TaskManager';
 import { completeTask } from '../api';
 import './SimulationView.css';
 
@@ -330,9 +331,16 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
                 setCompletedTaskIds(prev => new Set(prev).add(tid));
                 // Notify backend
                 completeTask(tid).catch(err => console.error('[SimulationView] Failed to complete task:', err));
+                
+                // NEW: Sync position to backend
+                const robotId = bot.id;
+                const finalX = bot.x;
+                const finalY = bot.z;
+                updateRobotPosition(robotId, finalX, finalY).catch(err => console.error('[SimulationView] Failed to sync position:', err));
               }
               return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false, currentTaskId: undefined };
             }
+
           }
         });
 

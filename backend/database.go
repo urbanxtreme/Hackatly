@@ -244,6 +244,13 @@ func UpdateRobotPriority(id int64, priority string) error {
 	return err
 }
 
+func UpdateRobotPosition(id int64, x, y float64) error {
+	query := "UPDATE robots SET current_position_x = ?, current_position_y = ? WHERE id = ?"
+	_, err := DB.Exec(query, x, y, id)
+	return err
+}
+
+
 func GetRobotByID(id int64) (Robot, error) {
 	var r Robot
 	query := "SELECT id, name, state, priority, current_position_x, current_position_y, current_task, battery FROM robots WHERE id = ?"

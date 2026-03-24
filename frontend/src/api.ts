@@ -87,6 +87,22 @@ export async function updateRobotPriority(id: number, priority: string) {
   return res.json();
 }
 
+export async function updateRobotPosition(id: number, x: number, y: number) {
+  const res = await authFetch(`/robots/${id}/position`, {
+    method: 'PATCH',
+    body: JSON.stringify({ x, y }),
+  });
+  return res.json();
+}
+
+export async function deleteRobot(id: number) {
+  const res = await authFetch(`/robots/${id}`, {
+    method: 'DELETE',
+  });
+  return res.json();
+}
+
+
 /* ─── Tasks ─── */
 export async function getTasks() {
   const res = await authFetch('/tasks');
@@ -112,6 +128,14 @@ export async function completeTask(taskId: string) {
   });
   return res.json();
 }
+
+export async function deleteTask(taskId: string) {
+  const res = await authFetch(`/tasks/${taskId}`, {
+    method: 'DELETE',
+  });
+  return res.json();
+}
+
 
 
 /* ─── Logs ─── */

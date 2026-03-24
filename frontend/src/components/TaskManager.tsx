@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { createTask } from '../api';
+import { createTask, deleteTask } from '../api';
 import './Dashboard.css';
 
 export interface ApiTask {
@@ -16,10 +16,12 @@ export interface ApiTask {
 interface TaskManagerProps {
   tasks: ApiTask[];
   onTaskAdded: () => void;
+  onTaskDeleted?: () => void;
   onSwitchToSimulation?: () => void;
 }
 
-const TaskManager = ({ tasks, onTaskAdded, onSwitchToSimulation }: TaskManagerProps) => {
+
+const TaskManager = ({ tasks, onTaskAdded, onTaskDeleted, onSwitchToSimulation }: TaskManagerProps) => {
   const [newFrom, setNewFrom] = useState('');
   const [newTo, setNewTo] = useState('');
   const [newPriority, setNewPriority] = useState<'high' | 'medium' | 'low'>('medium');
@@ -95,8 +97,22 @@ const TaskManager = ({ tasks, onTaskAdded, onSwitchToSimulation }: TaskManagerPr
                   <span className="status-dot" />
                   {task.status}
                 </span>
+                <button 
+                  className="btn-delete-task" 
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (confirm('Delete this task?')) {
+                      await deleteTask(task.task_id);
+                      onTaskDeleted?.();
+                    }
+                  }}
+                  title="Delete Task"
+                >
+                  🗑️
+                </button>
               </div>
             </div>
+
           ))
         )}
       </div>

@@ -89,6 +89,32 @@ func UpdateRobotPriorityHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Robot priority updated successfully"})
 }
 
+func UpdateRobotPositionHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid robot ID"})
+		return
+	}
+
+	var req struct {
+		X float64 `json:"x"`
+		Y float64 `json:"y"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	if err := UpdateRobotPosition(id, req.X, req.Y); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Robot position updated successfully"})
+}
+
+
 func GetRobotByIDHandler(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseInt(idStr, 10, 64)
