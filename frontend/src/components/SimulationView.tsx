@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import './SimulationView.css';
 import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
+import TaskManager, { type ApiTask } from './TaskManager';
+import { completeTask } from '../api';
+import './SimulationView.css';
 
 /* ─── Simulation Configuration ─── */
 const CENTER_OFFSET = (GRID_SIZE - 1) / 2;
@@ -15,7 +17,7 @@ const SPAWN_POINTS = [
   { x: 1, z: 14 }, { x: 28, z: 14 }
 ];
 
-/* ─── A* Pathfinding Logic (Ported from Teammate) ─── */
+/* ─── A* Pathfinding Logic ─── */
 const heuristic = (a: { x: number; z: number }, b: { x: number; z: number }) => 
   Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 
@@ -26,39 +28,33 @@ const astar = (start: { x: number; z: number }, goal: { x: number; z: number }) 
   let fScore = new Map<string, number>();
 
   const toKey = (p: { x: number; z: number }) => `${p.x},${p.z}`;
-  
   gScore.set(toKey(start), 0);
   fScore.set(toKey(start), heuristic(start, goal));
 
   while (openSet.length > 0) {
-    let current = openSet.reduce((a, b) => (fScore.get(toKey(a)) ?? Infinity) < (fScore.get(toKey(b)) ?? Infinity) ? a : b);
+    openSet.sort((a, b) => (fScore.get(toKey(a)) || Infinity) - (fScore.get(toKey(b)) || Infinity));
+    const current = openSet.shift()!;
 
     if (current.x === goal.x && current.z === goal.z) {
-      let calcPath = [current];
-      while (cameFrom.has(toKey(current))) {
-        current = cameFrom.get(toKey(current))!;
-        calcPath.push(current);
+      const path = [current];
+      let currKey = toKey(current);
+      while (cameFrom.has(currKey)) {
+        const prev = cameFrom.get(currKey)!;
+        path.unshift(prev);
+        currKey = toKey(prev);
       }
-      return calcPath.reverse();
+      return path;
     }
 
-    openSet = openSet.filter(p => p.x !== current.x || p.z !== current.z);
-
     const neighbors = [
-      { x: current.x + 1, z: current.z },
-      { x: current.x - 1, z: current.z },
-      { x: current.x, z: current.z + 1 },
-      { x: current.x, z: current.z - 1 }
-    ];
+      { x: current.x + 1, z: current.z }, { x: current.x - 1, z: current.z },
+      { x: current.x, z: current.z + 1 }, { x: current.x, z: current.z - 1 }
+    ].filter(n => n.x >= 0 && n.x < GRID_SIZE && n.z >= 0 && n.z < GRID_SIZE && STATIC_GRID[n.x][n.z] === 0);
 
-    for (let n of neighbors) {
-      if (n.x < 0 || n.x >= GRID_SIZE || n.z < 0 || n.z >= GRID_SIZE) continue;
-      if (STATIC_GRID[n.x][n.z] === 1) continue;
-
-      let tentativeGScore = (gScore.get(toKey(current)) ?? 0) + 1;
-      let nKey = toKey(n);
-
-      if (!gScore.has(nKey) || tentativeGScore < (gScore.get(nKey) ?? Infinity)) {
+    for (const n of neighbors) {
+      const tentativeGScore = (gScore.get(toKey(current)) ?? Infinity) + 1;
+      const nKey = toKey(n);
+      if (tentativeGScore < (gScore.get(nKey) ?? Infinity)) {
         cameFrom.set(nKey, current);
         gScore.set(nKey, tentativeGScore);
         fScore.set(nKey, tentativeGScore + heuristic(n, goal));
@@ -83,31 +79,34 @@ interface RobotState {
   pathIndex: number;
   payloadVisible: boolean;
   missionData: { px: string, pz: string, dx: string, dz: string };
+  currentTaskId?: string;
 }
 
-/* ─── 3D Robot Compoment ─── */
+interface SimulationViewProps {
+  apiRobots?: any[];
+  tasks?: ApiTask[];
+  onFetchData?: () => void;
+}
+
+/* ─── 3D Components ─── */
 const RobotModel = ({ robot, onSelect }: { robot: RobotState; onSelect: (r: RobotState) => void }) => {
   const meshRef = useRef<THREE.Group>(null!);
 
   useFrame(() => {
-    // Smooth transition between grid positions
     meshRef.current.position.x = THREE.MathUtils.lerp(meshRef.current.position.x, robot.x, 0.1);
     meshRef.current.position.z = THREE.MathUtils.lerp(meshRef.current.position.z, robot.z, 0.1);
   });
 
   return (
     <group ref={meshRef} position={[robot.x, 0, robot.z]} onClick={(e) => { e.stopPropagation(); onSelect(robot); }}>
-      {/* Body */}
       <mesh position={[0, 0.3, 0]}>
         <boxGeometry args={[0.7, 0.4, 0.8]} />
         <meshStandardMaterial color={robot.color} roughness={0.5} />
       </mesh>
-      {/* Antenna */}
       <mesh position={[0, 0.6, -0.2]}>
         <cylinderGeometry args={[0.05, 0.05, 0.3]} />
         <meshStandardMaterial color="white" />
       </mesh>
-      {/* Payload */}
       {robot.payloadVisible && (
         <mesh position={[0, 0.8, 0.1]}>
           <boxGeometry args={[0.4, 0.4, 0.4]} />
@@ -118,7 +117,6 @@ const RobotModel = ({ robot, onSelect }: { robot: RobotState; onSelect: (r: Robo
   );
 };
 
-/* ─── Environment Component ─── */
 const WarehouseEnvironment = () => {
   const racks = useMemo(() => {
     const items = [];
@@ -129,7 +127,6 @@ const WarehouseEnvironment = () => {
         }
       }
     }
-    // Tunnel walls
     for (let x = 5; x <= 25; x++) {
       items.push({ x, z: 27 }, { x, z: 29 });
     }
@@ -138,13 +135,11 @@ const WarehouseEnvironment = () => {
 
   return (
     <group>
-      {/* Ground */}
       <mesh rotation-x={-Math.PI / 2} position={[CENTER_OFFSET, -0.01, CENTER_OFFSET]}>
         <planeGeometry args={[GRID_SIZE, GRID_SIZE]} />
         <meshStandardMaterial color="#111" roughness={1.0} />
       </mesh>
       
-      {/* Grid Helper */}
       <Grid
         position={[CENTER_OFFSET, 0, CENTER_OFFSET]}
         args={[GRID_SIZE, GRID_SIZE]}
@@ -155,7 +150,6 @@ const WarehouseEnvironment = () => {
         fadeStrength={1}
       />
 
-      {/* Racks */}
       {racks.map((pos, i) => (
         <mesh key={i} position={[pos.x, 0.75, pos.z]}>
           <boxGeometry args={[0.9, 1.5, 0.9]} />
@@ -164,7 +158,6 @@ const WarehouseEnvironment = () => {
             points={[
               [-0.45, -0.75, -0.45], [0.45, -0.75, -0.45],
               [0.45, -0.75, -0.45], [0.45, 0.75, -0.45],
-              // Simple wireframe subset for performance/look
             ]}
             color="#000"
             lineWidth={1}
@@ -172,7 +165,6 @@ const WarehouseEnvironment = () => {
         </mesh>
       ))}
 
-      {/* Pads */}
       {SPAWN_POINTS.map((p, i) => (
         <mesh key={i} rotation-x={-Math.PI / 2} position={[p.x, 0.01, p.z]}>
           <planeGeometry args={[0.9, 0.9]} />
@@ -184,225 +176,116 @@ const WarehouseEnvironment = () => {
 };
 
 /* ─── Main Simulation Component ─── */
-const SimulationView = () => {
-  const [robots, setRobots] = useState<RobotState[]>(() => 
-    SPAWN_POINTS.map((pt, i) => ({
-      id: i,
-      x: pt.x,
-      z: pt.z,
-      color: `#${new THREE.Color(ROBOT_COLORS[i]).getHexString()}`,
-      missionPhase: 'IDLE',
-      status: 'IDLE',
-      path: [],
-      pathIndex: 0,
-      payloadVisible: false,
-      missionData: { px: '', pz: '', dx: '', dz: '' }
-    }))
-  );
+const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: SimulationViewProps) => {
+  const [robots, setRobots] = useState<RobotState[]>([]);
+  const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
   
   const [selectedRobot, setSelectedRobot] = useState<RobotState | null>(null);
-  const [isAuto, setIsAuto] = useState(false);
+  const [hasDeadlock, setHasDeadlock] = useState(false);
   
-  // Track latest robots for interval closures
   const robotsRef = useRef(robots);
   useEffect(() => { robotsRef.current = robots; }, [robots]);
 
-  // Task Queue for Deadlock Resolution
-  const [pendingTasks, setPendingTasks] = useState<any[]>([]);
-
-  // Go Resolver Port: Check if coordinates conflict
-  const positionsConflict = (a: any, b: any) => {
-    if ((a.px === b.px && a.pz === b.pz) || (a.px === b.dx && a.pz === b.dz)) return true;
-    if ((a.dx === b.px && a.dz === b.pz) || (a.dx === b.dx && a.dz === b.dz)) return true;
-    return false;
-  };
-
-  // Go Resolver Port: Build Graph & Detect Cycles
-  const resolveDeadlocks = (tasks: any[]) => {
-    if (tasks.length === 0) return { active: [], paused: [] };
-    
-    const edges: Record<string, string[]> = {};
-    tasks.forEach(t => edges[t.id] = []);
-    
-    for (let i = 0; i < tasks.length; i++) {
-        for (let j = 0; j < tasks.length; j++) {
-            if (i !== j && positionsConflict(tasks[i], tasks[j])) {
-                edges[tasks[i].id].push(tasks[j].id);
-            }
-        }
-    }
-
-    const visited: Record<string, boolean> = {};
-    const inStack: Record<string, boolean> = {};
-    const cycles: string[][] = [];
-    let path: string[] = [];
-
-    const dfs = (node: string): boolean => {
-        visited[node] = true;
-        inStack[node] = true;
-        path.push(node);
-
-        for (const neighbor of edges[node]) {
-            if (!visited[neighbor]) {
-                if (dfs(neighbor)) return true;
-            } else if (inStack[neighbor]) {
-                const cycleStart = path.indexOf(neighbor);
-                if (cycleStart >= 0) cycles.push([...path.slice(cycleStart)]);
-                return true;
-            }
-        }
-        path.pop();
-        inStack[node] = false;
-        return false;
-    };
-
-    tasks.forEach(t => { if (!visited[t.id]) dfs(t.id); });
-
-    const cycleSet = new Set<string>();
-    cycles.forEach(c => c.forEach(id => cycleSet.add(id)));
-
-    // Priorities: Just use ID as priority for simulation (lower ID = higher priority)
-    const sorted = [...tasks].sort((a, b) => a.id - b.id);
-    
-    const active: any[] = [];
-    const paused: any[] = [];
-    const reserved = new Set<string>();
-
-    for (const task of sorted) {
-        const pKey = `${task.px},${task.pz}`;
-        const dKey = `${task.dx},${task.dz}`;
-        
-        // If a higher priority task has reserved this cell and we are in a cycle
-        if ((reserved.has(pKey) || reserved.has(dKey)) && cycleSet.has(task.id)) {
-            paused.push(task);
-        } else {
-            reserved.add(pKey);
-            reserved.add(dKey);
-            active.push(task);
-        }
-    }
-
-    return { active, paused };
-  };
-
-  /* ─── Mission Logic ─── */
-  const forceStartMission = useCallback((id: number, px: number, pz: number, dx: number, dz: number) => {
-    setRobots(prev => prev.map(r => {
-      if (r.id !== id) return r;
-      const path = astar({ x: r.x, z: r.z }, { x: px, z: pz });
-      if (path.length > 0) {
-        return {
-          ...r,
-          path,
-          pathIndex: 1,
-          status: 'MOVING',
-          missionPhase: 'TO_PICK',
-          payloadVisible: false,
-          missionData: { px: String(px), pz: String(pz), dx: String(dx), dz: String(dz) }
-        };
-      }
-      return { ...r, missionPhase: 'FAILED' };
-    }));
-  }, []);
-
-  const dispatchAll = () => {
-    setIsAuto(false);
-    
-    const requestedTasks: any[] = [];
-    robots.forEach(r => {
-      const { px, pz, dx, dz } = r.missionData;
-      if (px && pz && dx && dz && r.status === 'IDLE') {
-        requestedTasks.push({ id: String(r.id), px: parseInt(px), pz: parseInt(pz), dx: parseInt(dx), dz: parseInt(dz) });
-      }
-    });
-
-    // Run Go Deadlock Resolver
-    const resolution = resolveDeadlocks(requestedTasks);
-    
-    // Save paused tasks to queue
-    setPendingTasks(resolution.paused);
-
-    // Only dispatch active safe tasks
-    resolution.active.forEach(t => forceStartMission(parseInt(t.id), t.px, t.pz, t.dx, t.dz));
-  };
-
-  const assignRandomMission = useCallback((bot: RobotState) => {
-    // Basic assignment without passing through global resolver for individual auto-ticks
-    // However, to keep it safe, we check if it conflicts with active reserved coordinates
-    let px: number, pz: number, dx: number, dz: number;
-    do {
-      px = Math.floor(Math.random() * GRID_SIZE);
-      pz = Math.floor(Math.random() * GRID_SIZE);
-    } while (STATIC_GRID[px][pz] === 1 || (px === bot.x && pz === bot.z));
-    do {
-      dx = Math.floor(Math.random() * GRID_SIZE);
-      dz = Math.floor(Math.random() * GRID_SIZE);
-    } while (STATIC_GRID[dx][dz] === 1 || (dx === px && dz === pz));
-
-    forceStartMission(bot.id, px, pz, dx, dz);
-  }, [forceStartMission]);
-
-  /* ─── Demo Deadlock Handlers ─── */
-  const demoSwapDeadlock = useCallback(() => {
-    setIsAuto(false);
-    setRobots(prev => prev.map((r, i) => {
-      if (i === 0) return { ...r, x: 14, z: 28, path: [], pathIndex: 0, status: 'IDLE', missionPhase: 'IDLE', payloadVisible: false };
-      if (i === 1) return { ...r, x: 15, z: 28, path: [], pathIndex: 0, status: 'IDLE', missionPhase: 'IDLE', payloadVisible: false };
-      return { ...r, status: 'DONE', path: [] }; // Halt others
-    }));
-    setTimeout(() => {
-        const tasks = [
-            { id: "0", px: 15, pz: 28, dx: 15, dz: 28 },
-            { id: "1", px: 14, pz: 28, dx: 14, dz: 28 }
-        ];
-        const res = resolveDeadlocks(tasks);
-        setPendingTasks(res.paused);
-        res.active.forEach(t => forceStartMission(parseInt(t.id), t.px, t.pz, t.dx, t.dz));
-    }, 150);
-  }, [forceStartMission]);
-
-  const demoSameCellDeadlock = useCallback(() => {
-    setIsAuto(false);
-    setRobots(prev => prev.map((r, i) => {
-      if (i === 0) return { ...r, x: 2, z: 1, path: [], pathIndex: 0, status: 'IDLE', missionPhase: 'IDLE', payloadVisible: false };
-      if (i === 1) return { ...r, x: 1, z: 1, path: [], pathIndex: 0, status: 'IDLE', missionPhase: 'IDLE', payloadVisible: false };
-      return { ...r, status: 'DONE', path: [] }; // Halt others
-    }));
-    setTimeout(() => {
-        const tasks = [
-            { id: "0", px: 15, pz: 1, dx: 0, dz: 1 },
-            { id: "1", px: 15, pz: 1, dx: 0, dz: 1 }
-        ];
-        const res = resolveDeadlocks(tasks);
-        setPendingTasks(res.paused);
-        res.active.forEach(t => forceStartMission(parseInt(t.id), t.px, t.pz, t.dx, t.dz));
-    }, 150);
-  }, [forceStartMission]);
-
-  /* ─── Autonomous Mode Engine ─── */
+  /* ─── Sync Robots with Backend ─── */
   useEffect(() => {
-    if (!isAuto) return;
-
-    // Immediately trigger for currently idle robots
-    robotsRef.current.forEach(r => {
-      if (r.missionPhase === 'IDLE' || r.status === 'DONE') {
-        setTimeout(() => assignRandomMission(r), r.id * 100);
-      }
-    });
-
-    const autoTimer = setInterval(() => {
-      robotsRef.current.forEach(r => {
-        if (r.missionPhase === 'IDLE' || r.status === 'DONE') {
-          assignRandomMission(r);
+    setRobots(prev => {
+      const newFleet = [...prev];
+      let hasChanges = false;
+      
+      apiRobots.forEach((apiBot, index) => {
+        const existing = prev.find(r => r.id === apiBot.id);
+        if (!existing) {
+          const pt = SPAWN_POINTS[index % SPAWN_POINTS.length];
+          newFleet.push({
+            id: apiBot.id,
+            x: pt.x,
+            z: pt.z,
+            color: `#${new THREE.Color(ROBOT_COLORS[index % ROBOT_COLORS.length]).getHexString()}`,
+            missionPhase: 'IDLE',
+            status: 'IDLE',
+            path: [],
+            pathIndex: 0,
+            payloadVisible: false,
+            missionData: { px: '', pz: '', dx: '', dz: '' }
+          });
+          hasChanges = true;
         }
       });
-    }, 2000);
+      
+      const validIds = new Set(apiRobots.map(r => r.id));
+      const filteredFleet = newFleet.filter(r => validIds.has(r.id));
+      if (filteredFleet.length !== newFleet.length) hasChanges = true;
 
-    return () => clearInterval(autoTimer);
-  }, [isAuto, assignRandomMission]);
+      return hasChanges ? filteredFleet : prev;
+    });
+  }, [apiRobots]);
+
+  /* ─── Backend Integration & Live Task Assignment ─── */
+  useEffect(() => {
+    // 1. Check for backend deadlock (any task in 'waiting' state)
+    const isDeadlocked = tasks.some(t => t.status === 'waiting');
+    setHasDeadlock(isDeadlocked);
+
+    // 2. Assign unassigned 'in_progress' or 'pending' tasks to IDLE robots
+    const activeBackendTasks = tasks.filter(t => 
+      (t.status === 'in_progress' || t.status === 'pending') && 
+      !completedTaskIds.has(t.task_id)
+    );
+
+    console.log('[SimulationView] Total tasks:', tasks.length, '| Active tasks:', activeBackendTasks.length);
+    
+    setRobots(prev => {
+      let updatedList = [...prev];
+      let hasChanges = false;
+
+      for (const backendTask of activeBackendTasks) {
+        // Skip if already assigned in frontend
+        if (updatedList.some(r => r.currentTaskId === backendTask.task_id)) {
+          continue;
+        }
+
+        console.log(`[SimulationView] Trying to assign task ${backendTask.task_id} from (${backendTask.get_x},${backendTask.get_y}) to (${backendTask.put_x},${backendTask.put_y})`);
+
+        // Find idle robot
+        const idleBotIndex = updatedList.findIndex(r => r.status === 'IDLE' || r.status === 'DONE');
+        if (idleBotIndex !== -1) {
+          const bot = updatedList[idleBotIndex];
+          const px = backendTask.get_x;
+          const pz = backendTask.get_y;
+          const dx = backendTask.put_x;
+          const dz = backendTask.put_y;
+
+          const testPath = astar({ x: bot.x, z: bot.z }, { x: px, z: pz });
+          console.log(`[SimulationView] Robot #${bot.id} at (${bot.x},${bot.z}) -> A* to pick (${px},${pz}) returned ${testPath.length} steps.`);
+          
+          if (testPath.length > 0) {
+            updatedList[idleBotIndex] = {
+              ...bot,
+              currentTaskId: backendTask.task_id,
+              path: testPath,
+              pathIndex: 1,
+              status: 'MOVING',
+              missionPhase: 'TO_PICK',
+              payloadVisible: false,
+              missionData: { px: String(px), pz: String(pz), dx: String(dx), dz: String(dz) }
+            };
+            hasChanges = true;
+            console.log(`[SimulationView] Assigned task ${backendTask.task_id} to Robot #${bot.id}`);
+          }
+        } else {
+          console.log(`[SimulationView] No idle robots available for task ${backendTask.task_id}`);
+        }
+      }
+      return hasChanges ? updatedList : prev;
+    });
+
+  }, [tasks]);
 
   /* ─── Simulation Tick Engine ─── */
   useEffect(() => {
+    // FREEZE simulation tick if a deadlock warning is active!
+    if (hasDeadlock) return;
+
     const timer = setInterval(() => {
       setRobots(prev => {
         let needsUpdate = false;
@@ -412,7 +295,7 @@ const SimulationView = () => {
           if (bot.pathIndex < bot.path.length) {
             const nextStep = bot.path[bot.pathIndex];
             
-            // Collision Check — use the current fleet positions for accurate detection
+            // Local collision check (simple stop if cell occupied)
             const occupied = prev.some(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
             
             if (occupied) {
@@ -429,7 +312,6 @@ const SimulationView = () => {
               const nextPath = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) });
               return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true };
             } else if (bot.missionPhase === 'TO_DROP') {
-              // Create a waiting area phase so it doesn't block the drop zone indefinitely
               const findWait = () => {
                 const offsets = [ {dx:2, dz:0}, {dx:-2, dz:0}, {dx:0, dz:2}, {dx:0, dz:-2}, {dx:2, dz:2}, {dx:-2, dz:-2} ];
                 for (let o of offsets) {
@@ -442,18 +324,14 @@ const SimulationView = () => {
               const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget);
               return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false };
             } else {
-              // Task finished! Check pending queue to awaken waiters!
-              setPendingTasks(currentPending => {
-                if (currentPending.length > 0) {
-                    const next = currentPending[0];
-                    console.log(`Awakening waiting Robot #${next.id} from queue!`);
-                    setTimeout(() => forceStartMission(parseInt(next.id), next.px, next.pz, next.dx, next.dz), 500);
-                    return currentPending.slice(1);
-                }
-                return currentPending;
-              });
-
-              return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false };
+              // Task permanently finished visually
+              if (bot.currentTaskId) {
+                const tid = bot.currentTaskId;
+                setCompletedTaskIds(prev => new Set(prev).add(tid));
+                // Notify backend
+                completeTask(tid).catch(err => console.error('[SimulationView] Failed to complete task:', err));
+              }
+              return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false, currentTaskId: undefined };
             }
           }
         });
@@ -463,12 +341,24 @@ const SimulationView = () => {
     }, TICK_INTERVAL);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [hasDeadlock]);
 
   return (
     <div className="simulation-view">
+      {/* ─── Deadlock Overlay ─── */}
+      {hasDeadlock && (
+        <div className="deadlock-overlay">
+          <div className="deadlock-warning">
+            <h1>CRITICAL DEADLOCK DETECTED!</h1>
+            <p>Multiple robots are attempting to claim intersecting paths.</p>
+            <p><strong>RoboFlow API is resolving the cycle and pausing conflicted tasks...</strong></p>
+            <div className="deadlock-spinner"></div>
+          </div>
+        </div>
+      )}
+
       {/* 3D Canvas */}
-      <div className="simulation-canvas-container">
+      <div className={`simulation-canvas-container ${hasDeadlock ? 'blurred' : ''}`}>
         <Canvas camera={{ position: [CENTER_OFFSET + 10, 20, CENTER_OFFSET + 10], fov: 50 }}>
           <color attach="background" args={['#050510']} />
           <ambientLight intensity={0.5} />
@@ -496,109 +386,27 @@ const SimulationView = () => {
                   <span>{selectedRobot.x}, {selectedRobot.z}</span>
                 </div>
                 <div className="tele-item">
+                  <label>Task ID</label>
+                  <span>{selectedRobot.currentTaskId || 'None'}</span>
+                </div>
+                <div className="tele-item">
                   <label>Phase</label>
                   <span>{selectedRobot.missionPhase}</span>
                 </div>
-                <div className="tele-item">
-                  <label>Payload</label>
-                  <span>{selectedRobot.payloadVisible ? 'Y' : 'N'}</span>
-                </div>
               </div>
-              {selectedRobot.path.length > 0 && (
-                <div className="path-preview">
-                  {selectedRobot.path.map((p, i) => (
-                    <div key={i}>{i === selectedRobot.pathIndex ? '📍' : '  '} [{p.x}, {p.z}]</div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Control Terminal */}
-      <aside className="sim-terminal">
-        <section className="panel glass sim-panel" style={{ flex: 3 }}>
-          <div className="sim-panel-title">Mission <span>Dispatch</span></div>
-          <div className="mission-list">
-            {robots.map(r => (
-              <div key={r.id} className="mission-row" style={{ borderLeftColor: r.color }}>
-                <div className="mission-robot-header">Robot #{r.id}</div>
-                <div className="mission-inputs">
-                  <div className="coordinate-group">
-                    <label>Pick</label>
-                    <input className="sim-input" type="number" placeholder="X" value={r.missionData.px} 
-                      onChange={(e) => setRobots(prev => prev.map(bot => bot.id === r.id ? { ...bot, missionData: { ...bot.missionData, px: e.target.value } } : bot))} 
-                    />
-                    <input className="sim-input" type="number" placeholder="Z" value={r.missionData.pz} 
-                      onChange={(e) => setRobots(prev => prev.map(bot => bot.id === r.id ? { ...bot, missionData: { ...bot.missionData, pz: e.target.value } } : bot))} 
-                    />
-                  </div>
-                  <div className="coordinate-group">
-                    <label>Drop</label>
-                    <input className="sim-input" type="number" placeholder="X" value={r.missionData.dx} 
-                      onChange={(e) => setRobots(prev => prev.map(bot => bot.id === r.id ? { ...bot, missionData: { ...bot.missionData, dx: e.target.value } } : bot))} 
-                    />
-                    <input className="sim-input" type="number" placeholder="Z" value={r.missionData.dz} 
-                      onChange={(e) => setRobots(prev => prev.map(bot => bot.id === r.id ? { ...bot, missionData: { ...bot.missionData, dz: e.target.value } } : bot))} 
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="sim-actions">
-            <button className="btn-dispatch" onClick={dispatchAll}>🔥 Dispatch All</button>
-            <div style={{ display: 'flex', gap: '5px', marginTop: '10px' }}>
-              <button className="btn-dispatch" style={{ background: '#ff8800', fontSize: '0.8rem', padding: '6px' }} onClick={demoSwapDeadlock}>Demo: Swap Deadlock</button>
-              <button className="btn-dispatch" style={{ background: '#ff8800', fontSize: '0.8rem', padding: '6px' }} onClick={demoSameCellDeadlock}>Demo: Same Cell Deadlock</button>
-            </div>
-            <button className="btn-auto" onClick={() => setIsAuto(!isAuto)} style={{ marginTop: '10px' }}>
-              {isAuto ? '⏹ Stop Autonomous' : '🚀 Start Autonomous'}
-            </button>
-          </div>
-        </section>
-
-        <section className="panel glass sim-panel" style={{ flex: 2 }}>
-          <div className="sim-panel-title">Fleet <span>Status</span></div>
-          <div className="table-scroll" style={{ flex: 1, overflowY: 'auto' }}>
-            <table className="fleet-table" style={{ fontSize: '0.7rem' }}>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Pos</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {robots.map(r => (
-                  <tr key={r.id}>
-                    <td className="unit-cell" style={{ color: r.color }}>#{r.id}</td>
-                    <td style={{ fontFamily: 'JetBrains Mono' }}>[{r.x},{r.z}]</td>
-                    <td>
-                      <span className={`status-badge status-${r.status.toLowerCase()}`} style={{ fontSize: '0.6rem' }}>
-                        {r.status === 'BLOCKED' ? 'DEADLOCK' : r.status}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          </section>
-
-          <section className="panel glass sim-panel" style={{ flex: 1, marginTop: '15px' }}>
-            <div className="sim-panel-title">Waiting <span>Queue</span> (Deadlock Avoidance)</div>
-            {pendingTasks.length === 0 ? (
-                <div style={{ fontSize: '0.75rem', color: '#888', fontStyle: 'italic', marginTop: '10px' }}>No deadlocks preempted.</div>
-            ) : (
-                <ul style={{ fontSize: '0.75rem', paddingLeft: '15px', color: '#ffcc00' }}>
-                    {pendingTasks.map((t, idx) => (
-                        <li key={idx}>Unit #{t.id} paused matching target</li>
-                    ))}
-                </ul>
-            )}
-          </section>
+      {/* Control Terminal - Features TaskManager */}
+      <aside className={`sim-terminal ${hasDeadlock ? 'blurred' : ''}`}>
+        <div className="panel glass" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <TaskManager 
+            tasks={tasks} 
+            onTaskAdded={onFetchData} 
+          />
+        </div>
       </aside>
     </div>
   );

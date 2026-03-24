@@ -106,6 +106,14 @@ export async function createTask(task: {
   return res.json();
 }
 
+export async function completeTask(taskId: string) {
+  const res = await authFetch(`/tasks/${taskId}/complete`, {
+    method: 'PATCH',
+  });
+  return res.json();
+}
+
+
 /* ─── Logs ─── */
 export async function getLogs() {
   const res = await authFetch('/logs');

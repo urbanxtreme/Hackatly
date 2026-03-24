@@ -94,20 +94,28 @@ func GetTasksHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, tasks)
 }
 
-func DeleteTaskHandler(c *gin.Context) {
-	id := c.Param("id")
-	if id == "" {
+func CompleteTaskHandler(c *gin.Context) {
+	taskID := c.Param("id")
+	if taskID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Task ID is required"})
 		return
 	}
 
-	if err := DeleteTask(id); err != nil {
+	result, err := DB.Exec("UPDATE tasks SET status = 'completed' WHERE task_id = ?", taskID)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"message": "Task deleted successfully"})
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Task not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "task completed", "task_id": taskID})
 }
+
 
 
 
