@@ -89,9 +89,9 @@ const Dashboard = () => {
   }, [fetchData]);
 
   // Derived stats
-  const activeRobots = robots.filter(r => r.state === 'active').length;
-  const pendingTasks = tasks.filter(t => t.status === 'pending' || t.status === 'waiting').length;
-  const completedTasks = tasks.filter(t => t.status === 'in_progress' || t.status === 'completed').length;
+  const activeRobots = tasks.filter(t => t.status === 'in_progress').length;
+  const pendingTasksCount = tasks.filter(t => t.status === 'pending' || t.status === 'waiting').length;
+  const runningTasksCount = tasks.filter(t => t.status === 'in_progress').length;
   const errorRobots = robots.filter(r => r.state === 'error').length;
   const efficiency = robots.length > 0
     ? Math.round((activeRobots / robots.length) * 100)
@@ -215,9 +215,9 @@ const Dashboard = () => {
                   <div className="stat-icon">📋</div>
                   <div className="stat-info">
                     <div className="stat-label">Pending Tasks</div>
-                    <div className="stat-value">{pendingTasks}</div>
+                    <div className="stat-value">{pendingTasksCount}</div>
                   </div>
-                  <div className="stat-change negative">{completedTasks} running</div>
+                  <div className="stat-change negative">{runningTasksCount} running</div>
                 </div>
                 <div className="stat-card glass">
                   <div className="stat-icon">⚡</div>
@@ -337,15 +337,18 @@ const Dashboard = () => {
                       No activity logs yet. Robot state changes and task updates will appear here.
                     </div>
                   ) : (
-                    logs.slice(0, 12).map((log) => (
-                      <div key={log.id} className="activity-item">
-                        <div className="activity-icon">🤖</div>
-                        <div className="activity-body">
-                          <span><strong>Bot #{log.bot_id}</strong> — {log.task}</span>
-                          <span className="activity-time">{timeAgo(log.timestamp)}</span>
+                    logs.slice(0, 12).map((log) => {
+                      const botName = robots.find(r => r.id === log.bot_id)?.name || `Bot #${log.bot_id}`;
+                      return (
+                        <div key={log.id} className="activity-item">
+                          <div className="activity-icon">🤖</div>
+                          <div className="activity-body">
+                            <span><strong>{botName}</strong> — {log.task}</span>
+                            <span className="activity-time">{timeAgo(log.timestamp)}</span>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </section>

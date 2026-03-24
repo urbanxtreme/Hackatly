@@ -185,3 +185,44 @@ func DeleteRobotHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Robot and associated logs deleted successfully"})
 }
+
+func AddEfficiencyHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid robot ID"})
+		return
+	}
+
+	var req struct {
+		Efficiency float64 `json:"efficiency" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	if err := InsertEfficiency(id, req.Efficiency); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Efficiency logged successfully"})
+}
+
+func GetEfficiencyHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid robot ID"})
+		return
+	}
+
+	history, err := GetEfficiencyHistory(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, history)
+}

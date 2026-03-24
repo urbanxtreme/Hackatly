@@ -31,6 +31,13 @@ type Log struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type EfficiencyLog struct {
+	ID        int64     `json:"id"`
+	BotID     int64     `json:"bot_id"`
+	Score     float64   `json:"score"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 var DB *sql.DB
 
 func getJWTKey() []byte {
@@ -132,6 +139,18 @@ func CreateDatabase() error {
 		priority VARCHAR(50) DEFAULT 'medium',
 		status VARCHAR(50) DEFAULT 'pending',
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		return err
+	}
+
+	err = CreateTable("efficiency_history", `
+	CREATE TABLE IF NOT EXISTS efficiency_history (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		bot_id INT NOT NULL,
+		score DOUBLE NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (bot_id) REFERENCES robots(id) ON DELETE CASCADE
 	)`)
 	if err != nil {
 		return err
@@ -324,6 +343,31 @@ func GetLogs() ([]Log, error) {
 	for rows.Next() {
 		var l Log
 		if err := rows.Scan(&l.ID, &l.BotID, &l.Task, &l.Timestamp); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func InsertEfficiency(botID int64, score float64) error {
+	query := `INSERT INTO efficiency_history (bot_id, score) VALUES (?, ?)`
+	_, err := DB.Exec(query, botID, score)
+	return err
+}
+
+func GetEfficiencyHistory(botID int64) ([]EfficiencyLog, error) {
+	query := `SELECT id, bot_id, score, timestamp FROM efficiency_history WHERE bot_id = ? ORDER BY timestamp ASC`
+	rows, err := DB.Query(query, botID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []EfficiencyLog
+	for rows.Next() {
+		var l EfficiencyLog
+		if err := rows.Scan(&l.ID, &l.BotID, &l.Score, &l.Timestamp); err != nil {
 			return nil, err
 		}
 		logs = append(logs, l)

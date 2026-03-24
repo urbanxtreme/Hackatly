@@ -144,6 +144,30 @@ export async function getLogs() {
   return res.json();
 }
 
+export async function addLog(botId: number, message: string) {
+  const res = await authFetch('/logs', {
+    method: 'POST',
+    body: JSON.stringify({
+      bot_id: botId,
+      task: message
+    })
+  });
+  return res.json();
+}
+
+export async function addEfficiency(botId: number, score: number) {
+  const res = await authFetch(`/robots/${botId}/efficiency`, {
+    method: 'POST',
+    body: JSON.stringify({ efficiency: score })
+  });
+  return res.json();
+}
+
+export async function getEfficiencyHistory(botId: number) {
+  const res = await authFetch(`/robots/${botId}/efficiency`);
+  return res.json();
+}
+
 /* ─── Map ─── */
 export async function getMap() {
   const res = await authFetch('/map');
