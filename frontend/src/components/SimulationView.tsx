@@ -29,6 +29,11 @@ const getStaticGrid = () => {
       }
     }
   }
+  // Add 1-tile wide "tunnel" on Z=28 between X=5 and X=25
+  for (let x = 5; x <= 25; x++) {
+    g[x][27] = 1; // Top wall
+    g[x][29] = 1; // Bottom wall
+  }
   return g;
 };
 
@@ -92,7 +97,7 @@ interface RobotState {
   x: number;
   z: number;
   color: string;
-  missionPhase: 'IDLE' | 'TO_PICK' | 'TO_DROP' | 'FAILED';
+  missionPhase: 'IDLE' | 'TO_PICK' | 'TO_DROP' | 'TO_WAIT' | 'FAILED';
   status: 'IDLE' | 'MOVING' | 'BLOCKED' | 'DONE';
   path: { x: number; z: number }[];
   pathIndex: number;
@@ -143,6 +148,10 @@ const WarehouseEnvironment = () => {
           items.push({ x, z }, { x: x + 1, z });
         }
       }
+    }
+    // Tunnel walls
+    for (let x = 5; x <= 25; x++) {
+      items.push({ x, z: 27 }, { x, z: 29 });
     }
     return items;
   }, []);
@@ -263,6 +272,34 @@ const SimulationView = () => {
     startMission(bot.id, px, pz, dx, dz);
   }, [startMission]);
 
+  /* ─── Demo Deadlock Handlers ─── */
+  const demoSwapDeadlock = useCallback(() => {
+    setIsAuto(false);
+    setRobots(prev => prev.map((r, i) => {
+      if (i === 0) return { ...r, x: 14, z: 28, path: [], pathIndex: 0, status: 'IDLE', missionPhase: 'IDLE', payloadVisible: false };
+      if (i === 1) return { ...r, x: 15, z: 28, path: [], pathIndex: 0, status: 'IDLE', missionPhase: 'IDLE', payloadVisible: false };
+      return { ...r, status: 'DONE', path: [] }; // Halt others
+    }));
+    setTimeout(() => {
+        // Instantly force them to step onto each other's spaces
+        startMission(0, 15, 28, 15, 28);
+        startMission(1, 14, 28, 14, 28);
+    }, 150);
+  }, [startMission]);
+
+  const demoSameCellDeadlock = useCallback(() => {
+    setIsAuto(false);
+    setRobots(prev => prev.map((r, i) => {
+      if (i === 0) return { ...r, x: 2, z: 1, path: [], pathIndex: 0, status: 'IDLE', missionPhase: 'IDLE', payloadVisible: false };
+      if (i === 1) return { ...r, x: 1, z: 1, path: [], pathIndex: 0, status: 'IDLE', missionPhase: 'IDLE', payloadVisible: false };
+      return { ...r, status: 'DONE', path: [] }; // Halt others
+    }));
+    setTimeout(() => {
+        startMission(0, 15, 1, 0, 1);
+        startMission(1, 15, 1, 0, 1);
+    }, 150);
+  }, [startMission]);
+
   /* ─── Autonomous Mode Engine ─── */
   useEffect(() => {
     if (!isAuto) return;
@@ -312,6 +349,19 @@ const SimulationView = () => {
             if (bot.missionPhase === 'TO_PICK') {
               const nextPath = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) });
               return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true };
+            } else if (bot.missionPhase === 'TO_DROP') {
+              // Create a waiting area phase so it doesn't block the drop zone indefinitely
+              const findWait = () => {
+                const offsets = [ {dx:2, dz:0}, {dx:-2, dz:0}, {dx:0, dz:2}, {dx:0, dz:-2}, {dx:2, dz:2}, {dx:-2, dz:-2} ];
+                for (let o of offsets) {
+                  const wx = bot.x + o.dx, wz = bot.z + o.dz;
+                  if (wx >= 0 && wx < GRID_SIZE && wz >= 0 && wz < GRID_SIZE && STATIC_GRID[wx][wz] === 0) return {x: wx, z: wz};
+                }
+                return {x: bot.x, z: bot.z}; 
+              };
+              const waitTarget = findWait();
+              const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget);
+              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false };
             } else {
               return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false };
             }
@@ -409,7 +459,11 @@ const SimulationView = () => {
           </div>
           <div className="sim-actions">
             <button className="btn-dispatch" onClick={dispatchAll}>🔥 Dispatch All</button>
-            <button className="btn-auto" onClick={() => setIsAuto(!isAuto)}>
+            <div style={{ display: 'flex', gap: '5px', marginTop: '10px' }}>
+              <button className="btn-dispatch" style={{ background: '#ff8800', fontSize: '0.8rem', padding: '6px' }} onClick={demoSwapDeadlock}>Demo: Swap Deadlock</button>
+              <button className="btn-dispatch" style={{ background: '#ff8800', fontSize: '0.8rem', padding: '6px' }} onClick={demoSameCellDeadlock}>Demo: Same Cell Deadlock</button>
+            </div>
+            <button className="btn-auto" onClick={() => setIsAuto(!isAuto)} style={{ marginTop: '10px' }}>
               {isAuto ? '⏹ Stop Autonomous' : '🚀 Start Autonomous'}
             </button>
           </div>
