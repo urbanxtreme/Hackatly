@@ -182,30 +182,6 @@ func processQueuedTasks() {
 	allTasks := append(existingTasks, newTasks...)
 	cycles := CheckDeadlock(allTasks)
 
-	var resolution DeadlockResolution
-	if len(cycles) > 0 {
-		resolution = ResolveDeadlock(allTasks, cycles)
-		log.Printf("[TaskWorker] Deadlock resolved, paused tasks: %v\n", resolution.PausedTaskIDs)
-
-		// Only process the new tasks from the resolution (existing ones are already running)
-		existingIDs := make(map[string]bool)
-		for _, t := range existingTasks {
-			existingIDs[t.TaskID] = true
-		}
-
-		var tasksToProcess []Task
-		for _, t := range resolution.ReorderedTasks {
-			if !existingIDs[t.TaskID] {
-				tasksToProcess = append(tasksToProcess, t)
-			} else if t.Status == "waiting" {
-				// If an existing in_progress task is now in conflict, pause it
-				DB.Exec("UPDATE tasks SET status = 'waiting' WHERE task_id = ?", t.TaskID)
-				log.Printf("[TaskWorker] Existing task %s paused due to deadlock\n", t.TaskID)
-			}
-		}
-		newTasks = tasksToProcess
-	}
-
 	InitReservations()
 
 	// Re-reserve paths for existing in_progress tasks
@@ -216,14 +192,8 @@ func processQueuedTasks() {
 		}
 	}
 
+	// Process all new tasks directly to in_progress for physical simulation
 	for _, task := range newTasks {
-		if task.Status == "waiting" {
-			log.Printf("[TaskWorker] Task %s paused due to deadlock resolution\n", task.TaskID)
-			DB.Exec("UPDATE tasks SET status = 'waiting' WHERE task_id = ?", task.TaskID)
-			PushTask(task)
-			continue
-		}
-
 		pickupPath, err := CooperativeAStar(task.GetX, task.GetY, task.GetX, task.GetY)
 		if err != nil {
 			pickupPath = []PathStep{{X: task.GetX, Y: task.GetY, T: 0}}
@@ -237,7 +207,6 @@ func processQueuedTasks() {
 		}
 
 		Reservations.ReservePath(deliveryPath)
-
 		DB.Exec("UPDATE tasks SET status = 'in_progress' WHERE task_id = ?", task.TaskID)
 
 		log.Printf("[TaskWorker] Task %s: pickup path (%d steps), delivery path (%d steps)\n",

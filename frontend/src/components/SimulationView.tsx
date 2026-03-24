@@ -189,6 +189,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
   
   const [selectedRobot, setSelectedRobot] = useState<RobotState | null>(null);
   const [hasDeadlock, setHasDeadlock] = useState(false);
+  const [physicalDeadlockTime, setPhysicalDeadlockTime] = useState<number | null>(null);
   
   const robotsRef = useRef(robots);
   useEffect(() => { robotsRef.current = robots; }, [robots]);
@@ -302,11 +303,24 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
       for (const backendTask of activeBackendTasks) {
         if (updatedList.some(r => r.currentTaskId === backendTask.task_id)) continue;
 
-        const idleBotIndex = updatedList.findIndex(r => r.status === 'IDLE' || r.status === 'DONE');
-        if (idleBotIndex !== -1) {
-          const bot = updatedList[idleBotIndex];
+        const availableBots = updatedList.filter(r => r.status === 'IDLE' || r.status === 'DONE');
+        if (availableBots.length > 0) {
           const px = backendTask.get_x;
           const pz = backendTask.get_y;
+          
+          let nearestBot = availableBots[0];
+          let minDistance = Infinity;
+          
+          for (const bot of availableBots) {
+            const dist = heuristic({x: bot.x, z: bot.z}, {x: px, z: pz});
+            if (dist < minDistance) {
+              minDistance = dist;
+              nearestBot = bot;
+            }
+          }
+
+          const idleBotIndex = updatedList.findIndex(r => r.id === nearestBot.id);
+          const bot = updatedList[idleBotIndex];
           const dx = backendTask.put_x;
           const dz = backendTask.put_y;
 
@@ -347,8 +361,55 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
     if (hasDeadlock) return;
 
     const timer = setInterval(() => {
+      // Manage 10-second Physical Deadlock Freeze
+      setPhysicalDeadlockTime(prevTime => {
+        if (prevTime !== null) {
+          if (prevTime <= 0) {
+             // Freeze ends — bots will dynamically repath on their next tick
+             return null; 
+          }
+          return prevTime - (TICK_INTERVAL / 1000);
+        }
+        return null;
+      });
+
       setRobots(prev => {
+        // If we are actively frozen, don't move bots
+        let isFrozen = false;
+        setPhysicalDeadlockTime(time => {
+          isFrozen = time !== null && time > 0;
+          return time;
+        });
+        if (isFrozen) return prev;
+
         let needsUpdate = false;
+        
+        // 1. Detect physical head-to-head blockages
+        const blockedBy = new Map<number, number>();
+        prev.forEach(bot => {
+          if (bot.pathIndex < bot.path.length && (bot.status === 'MOVING' || bot.status === 'BLOCKED')) {
+            const nextStep = bot.path[bot.pathIndex];
+            const blockingBot = prev.find(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
+            if (blockingBot) {
+              blockedBy.set(bot.id, blockingBot.id);
+            }
+          }
+        });
+
+        // Simple cycle detection: A -> B and B -> A
+        let detectedCycle = false;
+        blockedBy.forEach((blockingId, botId) => {
+          const blocksTheBlocker = blockedBy.get(blockingId);
+          if (blocksTheBlocker === botId) {
+            detectedCycle = true;
+          }
+        });
+
+        if (detectedCycle) {
+          setPhysicalDeadlockTime(prevTime => prevTime === null ? 10 : prevTime);
+          return prev.map(bot => blockedBy.has(bot.id) ? { ...bot, status: 'BLOCKED' as const, consecutiveBlocks: 5 /* force repath on unfreeze */ } : bot);
+        }
+
         const nextFleet = prev.map(bot => {
           if (bot.status !== 'MOVING' && bot.status !== 'BLOCKED') return bot;
 
@@ -412,8 +473,20 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
   return (
     <div className="simulation-view">
-      {/* ─── Deadlock Overlay ─── */}
-      {hasDeadlock && (
+      {/* ─── Physical Deadlock Overlay ─── */}
+      {physicalDeadlockTime !== null && physicalDeadlockTime > 0 && (
+        <div className="deadlock-overlay" style={{ background: 'rgba(255, 0, 0, 0.7)' }}>
+          <div className="deadlock-warning" style={{ border: '3px solid #fff' }}>
+            <h1>⚠️ PHYSICAL COLLISION PREVENTED</h1>
+            <p>Robots are attempting to occupy the same space in the aisles.</p>
+            <p><strong>Freezing fleet to calculate evasion routes...</strong></p>
+            <h2 style={{ fontSize: '3rem', margin: '20px 0' }}>{Math.ceil(physicalDeadlockTime)}s</h2>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Backend Deadlock Overlay ─── */}
+      {hasDeadlock && !physicalDeadlockTime && (
         <div className="deadlock-overlay">
           <div className="deadlock-warning">
             <h1>CRITICAL DEADLOCK DETECTED!</h1>
@@ -425,14 +498,14 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
       )}
 
       {/* ─── Failed Task Warning Banner ─── */}
-      {failedTasks.length > 0 && !hasDeadlock && (
+      {failedTasks.length > 0 && !hasDeadlock && !physicalDeadlockTime && (
         <div className="failed-task-banner">
           ⚠️ {failedTasks.length} task(s) failed — path conflict or unreachable destination. Robot(s) have been stopped.
         </div>
       )}
 
 
-      <div className={`simulation-canvas-container ${hasDeadlock ? 'blurred' : ''}`}>
+      <div className={`simulation-canvas-container ${hasDeadlock || physicalDeadlockTime ? 'blurred' : ''}`}>
         <Canvas camera={{ position: [CENTER_OFFSET + 10, 20, CENTER_OFFSET + 10], fov: 50 }}>
           <color attach="background" args={['#050510']} />
           <ambientLight intensity={0.5} />
