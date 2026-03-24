@@ -82,7 +82,6 @@ func DisconnectDatabase() error {
 }
 
 func CreateDatabase() error {
-	// Users table
 	err := CreateTable("users", `
 	CREATE TABLE IF NOT EXISTS users (
 		id INT AUTO_INCREMENT PRIMARY KEY,
@@ -110,7 +109,6 @@ func CreateDatabase() error {
 		return err
 	}
 
-	// Logs table
 	err = CreateTable("logs", `
 	CREATE TABLE IF NOT EXISTS logs (
 		id INT AUTO_INCREMENT PRIMARY KEY,
@@ -118,6 +116,21 @@ func CreateDatabase() error {
 		task VARCHAR(255),
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (bot_id) REFERENCES robots(id)
+	)`)
+	if err != nil {
+		return err
+	}
+
+	err = CreateTable("tasks", `
+	CREATE TABLE IF NOT EXISTS tasks (
+		task_id VARCHAR(255) PRIMARY KEY,
+		get_x INT NOT NULL,
+		get_y INT NOT NULL,
+		put_x INT NOT NULL,
+		put_y INT NOT NULL,
+		priority VARCHAR(50) DEFAULT 'medium',
+		status VARCHAR(50) DEFAULT 'pending',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	)`)
 	if err != nil {
 		return err
