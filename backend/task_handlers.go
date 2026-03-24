@@ -179,8 +179,8 @@ func processQueuedTasks() {
 	}
 
 	// Combine for deadlock detection
-	allTasks := append(existingTasks, newTasks...)
-	cycles := CheckDeadlock(allTasks)
+	// We no longer pause tasks in backend, but keeping this comment for context.
+	// allTasks := append(existingTasks, newTasks...)
 
 	InitReservations()
 
