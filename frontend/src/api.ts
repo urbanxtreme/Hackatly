@@ -1,0 +1,127 @@
+/* ─── Centralized API Client ─── */
+
+const BASE_URL = 'http://localhost:8080';
+
+/* ─── Token helpers ─── */
+export const getToken = () => localStorage.getItem('roboflow-token');
+export const setToken = (t: string) => localStorage.setItem('roboflow-token', t);
+export const clearToken = () => localStorage.removeItem('roboflow-token');
+
+/* ─── Core fetch wrapper ─── */
+async function authFetch(path: string, opts: RequestInit = {}) {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(opts.headers as Record<string, string> || {}),
+  };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}${path}`, { ...opts, headers });
+
+  if (res.status === 401) {
+    clearToken();
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
+
+  return res;
+}
+
+/* ─── Auth ─── */
+export async function login(username: string, password: string) {
+  const res = await fetch(`${BASE_URL}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Login failed');
+  setToken(data.token);
+  localStorage.setItem('roboflow-user', data.username);
+  return data;
+}
+
+export async function register(username: string, password: string, email: string) {
+  const res = await fetch(`${BASE_URL}/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, email }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Registration failed');
+  setToken(data.token);
+  localStorage.setItem('roboflow-user', data.username);
+  return data;
+}
+
+/* ─── Robots ─── */
+export async function getRobots() {
+  const res = await authFetch('/robots');
+  return res.json();
+}
+
+export async function addRobot(robot: {
+  name: string; state?: string; priority?: string;
+  x?: number; y?: number; current_task?: string; battery?: number;
+}) {
+  const res = await authFetch('/robots', {
+    method: 'POST',
+    body: JSON.stringify(robot),
+  });
+  return res.json();
+}
+
+export async function updateRobotState(id: number, state: string) {
+  const res = await authFetch(`/robots/${id}/state`, {
+    method: 'PATCH',
+    body: JSON.stringify({ state }),
+  });
+  return res.json();
+}
+
+export async function updateRobotPriority(id: number, priority: string) {
+  const res = await authFetch(`/robots/${id}/priority`, {
+    method: 'PATCH',
+    body: JSON.stringify({ priority }),
+  });
+  return res.json();
+}
+
+/* ─── Tasks ─── */
+export async function getTasks() {
+  const res = await authFetch('/tasks');
+  return res.json();
+}
+
+export async function createTask(task: {
+  task_id: string;
+  get_coordinate: [number, number];
+  put_coordinate: [number, number];
+  priority?: string;
+}) {
+  const res = await authFetch('/task', {
+    method: 'POST',
+    body: JSON.stringify(task),
+  });
+  return res.json();
+}
+
+/* ─── Logs ─── */
+export async function getLogs() {
+  const res = await authFetch('/logs');
+  return res.json();
+}
+
+/* ─── Map ─── */
+export async function getMap() {
+  const res = await authFetch('/map');
+  return res.json();
+}
+
+export async function initMap(map: number[][]) {
+  const res = await authFetch('/init', {
+    method: 'POST',
+    body: JSON.stringify({ map }),
+  });
+  return res.json();
+}

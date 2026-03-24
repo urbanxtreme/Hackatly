@@ -1,17 +1,39 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { register } from '../api';
 import './AuthPage.css';
 
 const SignupPage = () => {
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
+  const [form, setForm] = useState({ username: '', email: '', password: '', confirm: '' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const update = (field: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [field]: e.target.value });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate('/dashboard');
+    setError('');
+
+    if (form.password !== form.confirm) {
+      setError('Passwords do not match');
+      return;
+    }
+    if (form.password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await register(form.username, form.password, form.email);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -23,25 +45,27 @@ const SignupPage = () => {
           <p>Create your operator account</p>
         </div>
 
+        {error && <div className="auth-error">{error}</div>}
+
         <form className="auth-form" onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Full Name</label>
-            <input type="text" placeholder="John Doe" value={form.name} onChange={update('name')} />
+            <label>Username</label>
+            <input type="text" placeholder="operator_name" value={form.username} onChange={update('username')} required />
           </div>
           <div className="form-group">
             <label>Email</label>
-            <input type="email" placeholder="operator@roboflow.io" value={form.email} onChange={update('email')} />
+            <input type="email" placeholder="operator@roboflow.io" value={form.email} onChange={update('email')} required />
           </div>
           <div className="form-group">
             <label>Password</label>
-            <input type="password" placeholder="Min 8 characters" value={form.password} onChange={update('password')} />
+            <input type="password" placeholder="Min 6 characters" value={form.password} onChange={update('password')} required />
           </div>
           <div className="form-group">
             <label>Confirm Password</label>
-            <input type="password" placeholder="Re-enter password" value={form.confirm} onChange={update('confirm')} />
+            <input type="password" placeholder="Re-enter password" value={form.confirm} onChange={update('confirm')} required />
           </div>
-          <button type="submit" className="auth-submit">
-            Create Account
+          <button type="submit" className="auth-submit" disabled={loading}>
+            {loading ? 'Creating...' : 'Create Account'}
           </button>
         </form>
 

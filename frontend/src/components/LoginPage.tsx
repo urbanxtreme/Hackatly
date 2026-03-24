@@ -1,16 +1,27 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { login } from '../api';
 import './AuthPage.css';
 
 const LoginPage = () => {
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Demo: just navigate to dashboard
-    navigate('/dashboard');
+    setError('');
+    setLoading(true);
+    try {
+      await login(username, password);
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -22,14 +33,17 @@ const LoginPage = () => {
           <p>Welcome back, operator</p>
         </div>
 
+        {error && <div className="auth-error">{error}</div>}
+
         <form className="auth-form" onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>Email</label>
+            <label>Username</label>
             <input
-              type="email"
-              placeholder="operator@roboflow.io"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              placeholder="operator"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              required
             />
           </div>
           <div className="form-group">
@@ -39,10 +53,11 @@ const LoginPage = () => {
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              required
             />
           </div>
-          <button type="submit" className="auth-submit">
-            Access Dashboard
+          <button type="submit" className="auth-submit" disabled={loading}>
+            {loading ? 'Logging in...' : 'Access Dashboard'}
           </button>
         </form>
 

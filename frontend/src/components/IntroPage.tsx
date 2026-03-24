@@ -40,10 +40,6 @@ const partners = ["LogiPlus", "WareHero", "AutoShip", "SwiftGrid", "NexMove"];
 
 const IntroPage = () => {
   const [scrolled, setScrolled] = useState(false);
-  const [isDark, setIsDark] = useState(() => {
-    const saved = localStorage.getItem('roboflow-theme');
-    return saved === 'dark';
-  });
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -52,9 +48,8 @@ const IntroPage = () => {
   }, []);
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
-    localStorage.setItem('roboflow-theme', isDark ? 'dark' : 'light');
-  }, [isDark]);
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }, []);
 
   return (
     <div className="intro-container">
@@ -67,9 +62,6 @@ const IntroPage = () => {
           <a href="#partners">Partners</a>
         </div>
         <div className="nav-auth">
-          <button className="theme-toggle" onClick={() => setIsDark(!isDark)} title="Toggle theme">
-            {isDark ? '☀️' : '🌙'}
-          </button>
           <Link to="/login" className="btn-secondary">Login</Link>
           <Link to="/signup" className="btn-primary">Sign Up</Link>
         </div>
