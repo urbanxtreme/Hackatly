@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { login } from '../api';
+import { login, initMap } from '../api';
+import { STATIC_GRID } from '../utils/grid';
 import './AuthPage.css';
 
 const LoginPage = () => {
@@ -16,10 +17,16 @@ const LoginPage = () => {
     setLoading(true);
     try {
       await login(username, password);
+      try {
+        await initMap(STATIC_GRID);
+      } catch (err) {
+        console.error('Failed to initialize map on backend:', err);
+      }
       navigate('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
+
       setLoading(false);
     }
   };

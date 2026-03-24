@@ -3,9 +3,9 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import './SimulationView.css';
+import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
 
 /* ─── Simulation Configuration ─── */
-const GRID_SIZE = 30;
 const CENTER_OFFSET = (GRID_SIZE - 1) / 2;
 const TICK_INTERVAL = 250;
 const ROBOT_COLORS = [0xff2222, 0xffaa00, 0x00cc22, 0x00aaff, 0x9900ff, 0x333333];
@@ -18,26 +18,6 @@ const SPAWN_POINTS = [
 /* ─── A* Pathfinding Logic (Ported from Teammate) ─── */
 const heuristic = (a: { x: number; z: number }, b: { x: number; z: number }) => 
   Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
-
-const getStaticGrid = () => {
-  const g = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(0));
-  for (let x = 3; x < GRID_SIZE - 3; x += 5) {
-    for (let z = 3; z < GRID_SIZE - 3; z++) {
-      if (z % 8 !== 0 && z % 8 !== 1) {
-        g[x][z] = 1;
-        g[x + 1][z] = 1;
-      }
-    }
-  }
-  // Add 1-tile wide "tunnel" on Z=28 between X=5 and X=25
-  for (let x = 5; x <= 25; x++) {
-    g[x][27] = 1; // Top wall
-    g[x][29] = 1; // Bottom wall
-  }
-  return g;
-};
-
-const STATIC_GRID = getStaticGrid();
 
 const astar = (start: { x: number; z: number }, goal: { x: number; z: number }) => {
   let openSet = [start];
