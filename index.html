@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Warehouse Simulation</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+  </style>
+</head>
+
+<body>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+  // SCENE
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x111111);
+
+  // CAMERA
+  const camera = new THREE.PerspectiveCamera(
+    60,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
+
+  camera.position.set(10, 15, 25);
+  camera.lookAt(10, 0, 10);
+
+  // RENDERER
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  // CONTROLS
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.target.set(10, 0, 10);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
+
+  // LIGHTING
+  const light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(10, 20, 10);
+  scene.add(light);
+
+  const ambient = new THREE.AmbientLight(0x404040);
+  scene.add(ambient);
+
+  // =========================
+  // GROUND (MAIN FLOOR)
+  // =========================
+  const groundSize = 20;
+
+  const groundGeometry = new THREE.PlaneGeometry(groundSize, groundSize);
+  const groundMaterial = new THREE.MeshStandardMaterial({
+    color: 0x1a1a1a
+  });
+
+  const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(10, 0, 10);
+
+  scene.add(ground);
+
+  // =========================
+  // GRID HELPER (LINES)
+  // =========================
+  const gridHelper = new THREE.GridHelper(
+    groundSize,
+    groundSize,
+    0xffffff,
+    0x555555
+  );
+
+  gridHelper.position.set(10, 0, 10);
+  scene.add(gridHelper);
+
+  // =========================
+  // ANIMATION LOOP
+  // =========================
+  function animate() {
+    requestAnimationFrame(animate);
+    controls.update(); // only required if controls.enableDamping or controls.autoRotate are set
+    renderer.render(scene, camera);
+  }
+
+  animate();
+
+</script>
+
+</body>
+</html>
