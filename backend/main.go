@@ -62,6 +62,7 @@ func main() {
 
 		protected.POST("/task", CreateTaskHandler)
 		protected.GET("/tasks", GetTasksHandler)
+		protected.PATCH("/tasks/:id/complete", CompleteTaskHandler)
 
 
 	}

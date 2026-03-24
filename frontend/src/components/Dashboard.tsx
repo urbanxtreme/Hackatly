@@ -330,7 +330,7 @@ const Dashboard = () => {
               </section>
             </>
           ) : activeTab === 'simulation' ? (
-            <SimulationView tasks={tasks} onFetchData={fetchData} />
+            <SimulationView apiRobots={robots} tasks={tasks} onFetchData={fetchData} />
           ) : (
             <div className="panel glass" style={{ padding: '4rem', textAlign: 'center' }}>
               <h2 className="panel-title">Coming Soon</h2>

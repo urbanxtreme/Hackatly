@@ -4,6 +4,7 @@ import { OrbitControls, Grid, Line } from '@react-three/drei';
 import * as THREE from 'three';
 import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
 import TaskManager, { type ApiTask } from './TaskManager';
+import { completeTask } from '../api';
 import './SimulationView.css';
 
 /* ─── Simulation Configuration ─── */
@@ -72,7 +73,7 @@ interface RobotState {
   x: number;
   z: number;
   color: string;
-  missionPhase: 'IDLE' | 'TO_PICK' | 'TO_DROP' | 'TO_WAIT';
+  missionPhase: 'IDLE' | 'TO_PICK' | 'TO_DROP' | 'TO_WAIT' | 'FAILED';
   status: 'IDLE' | 'MOVING' | 'BLOCKED' | 'DONE';
   path: { x: number; z: number }[];
   pathIndex: number;
@@ -82,6 +83,7 @@ interface RobotState {
 }
 
 interface SimulationViewProps {
+  apiRobots?: any[];
   tasks?: ApiTask[];
   onFetchData?: () => void;
 }
@@ -174,27 +176,49 @@ const WarehouseEnvironment = () => {
 };
 
 /* ─── Main Simulation Component ─── */
-const SimulationView = ({ tasks = [], onFetchData = () => {} }: SimulationViewProps) => {
-  const [robots, setRobots] = useState<RobotState[]>(() => 
-    SPAWN_POINTS.map((pt, i) => ({
-      id: i,
-      x: pt.x,
-      z: pt.z,
-      color: `#${new THREE.Color(ROBOT_COLORS[i]).getHexString()}`,
-      missionPhase: 'IDLE',
-      status: 'IDLE',
-      path: [],
-      pathIndex: 0,
-      payloadVisible: false,
-      missionData: { px: '', pz: '', dx: '', dz: '' }
-    }))
-  );
+const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: SimulationViewProps) => {
+  const [robots, setRobots] = useState<RobotState[]>([]);
+  const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
   
   const [selectedRobot, setSelectedRobot] = useState<RobotState | null>(null);
   const [hasDeadlock, setHasDeadlock] = useState(false);
   
   const robotsRef = useRef(robots);
   useEffect(() => { robotsRef.current = robots; }, [robots]);
+
+  /* ─── Sync Robots with Backend ─── */
+  useEffect(() => {
+    setRobots(prev => {
+      const newFleet = [...prev];
+      let hasChanges = false;
+      
+      apiRobots.forEach((apiBot, index) => {
+        const existing = prev.find(r => r.id === apiBot.id);
+        if (!existing) {
+          const pt = SPAWN_POINTS[index % SPAWN_POINTS.length];
+          newFleet.push({
+            id: apiBot.id,
+            x: pt.x,
+            z: pt.z,
+            color: `#${new THREE.Color(ROBOT_COLORS[index % ROBOT_COLORS.length]).getHexString()}`,
+            missionPhase: 'IDLE',
+            status: 'IDLE',
+            path: [],
+            pathIndex: 0,
+            payloadVisible: false,
+            missionData: { px: '', pz: '', dx: '', dz: '' }
+          });
+          hasChanges = true;
+        }
+      });
+      
+      const validIds = new Set(apiRobots.map(r => r.id));
+      const filteredFleet = newFleet.filter(r => validIds.has(r.id));
+      if (filteredFleet.length !== newFleet.length) hasChanges = true;
+
+      return hasChanges ? filteredFleet : prev;
+    });
+  }, [apiRobots]);
 
   /* ─── Backend Integration & Live Task Assignment ─── */
   useEffect(() => {
@@ -203,7 +227,11 @@ const SimulationView = ({ tasks = [], onFetchData = () => {} }: SimulationViewPr
     setHasDeadlock(isDeadlocked);
 
     // 2. Assign unassigned 'in_progress' or 'pending' tasks to IDLE robots
-    const activeBackendTasks = tasks.filter(t => t.status === 'in_progress' || t.status === 'pending');
+    const activeBackendTasks = tasks.filter(t => 
+      (t.status === 'in_progress' || t.status === 'pending') && 
+      !completedTaskIds.has(t.task_id)
+    );
+
     console.log('[SimulationView] Total tasks:', tasks.length, '| Active tasks:', activeBackendTasks.length);
     
     setRobots(prev => {
@@ -297,6 +325,12 @@ const SimulationView = ({ tasks = [], onFetchData = () => {} }: SimulationViewPr
               return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false };
             } else {
               // Task permanently finished visually
+              if (bot.currentTaskId) {
+                const tid = bot.currentTaskId;
+                setCompletedTaskIds(prev => new Set(prev).add(tid));
+                // Notify backend
+                completeTask(tid).catch(err => console.error('[SimulationView] Failed to complete task:', err));
+              }
               return { ...bot, status: 'DONE' as const, missionPhase: 'IDLE' as const, payloadVisible: false, currentTaskId: undefined };
             }
           }
