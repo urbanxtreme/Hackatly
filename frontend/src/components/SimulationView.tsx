@@ -571,7 +571,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
 
   /* ─── Optimized Simulation Tick Engine (RoboFlow Middleware Active) ─── */
   useEffect(() => {
-    if (hasDeadlock || simulationMode !== 'OPTIMIZED') return;
+    if (simulationMode !== 'OPTIMIZED') return;
 
     const timer = setInterval(() => {
       // Manage 10-second Physical Deadlock Freeze
@@ -679,8 +679,15 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
         const evictIds = new Set<number>();
         prev.forEach(bot => {
           if ((bot.status === 'MOVING' || bot.status === 'BLOCKED') && bot.path.length > 0) {
+            const nextStep = bot.pathIndex < bot.path.length ? bot.path[bot.pathIndex] : null;
             const goal = bot.path[bot.path.length - 1];
-            const blocker = prev.find(r => r.id !== bot.id && r.x === goal.x && r.z === goal.z && (r.status === 'IDLE' || r.status === 'DONE') && !evictIds.has(r.id));
+            
+            const blocker = prev.find(r => 
+              r.id !== bot.id && 
+              (r.status === 'IDLE' || r.status === 'DONE') && 
+              !evictIds.has(r.id) &&
+              ( (r.x === goal.x && r.z === goal.z) || (nextStep && r.x === nextStep.x && r.z === nextStep.z) )
+            );
             if (blocker) evictIds.add(blocker.id);
           }
         });
@@ -864,17 +871,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
 
   return (
     <div className="simulation-view">
-      {/* ─── Backend Deadlock Overlay (Optimized mode only) ─── */}
-      {hasDeadlock && simulationMode === 'OPTIMIZED' && (
-        <div className="deadlock-overlay">
-          <div className="deadlock-warning">
-            <h1>CRITICAL DEADLOCK DETECTED!</h1>
-            <p>Multiple robots are attempting to claim intersecting paths.</p>
-            <p><strong>RoboFlow API is resolving the cycle and pausing conflicted tasks...</strong></p>
-            <div className="deadlock-spinner"></div>
-          </div>
-        </div>
-      )}
+
 
       {/* ─── Failed Task Warning Banner ─── */}
       {failedTasks.length > 0 && !hasDeadlock && (
@@ -884,7 +881,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
       )}
 
 
-      <div className={`simulation-canvas-container ${hasDeadlock || physicalDeadlockTime ? 'blurred' : ''}`}>
+      <div className={`simulation-canvas-container ${physicalDeadlockTime ? 'blurred' : ''}`}>
         <Canvas camera={{ position: [CENTER_OFFSET + 10, 20, CENTER_OFFSET + 10], fov: 50 }}>
           <color attach="background" args={['#050510']} />
           <ambientLight intensity={0.5} />
@@ -947,7 +944,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
         )}
       </div>
 
-      <aside className={`sim-terminal ${hasDeadlock && simulationMode === 'OPTIMIZED' ? 'blurred' : ''}`}>
+      <aside className={`sim-terminal ${physicalDeadlockTime ? 'blurred' : ''}`}>
         {/* ─── Mode Toggle ─── */}
         <div className="panel glass mode-toggle-panel">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
