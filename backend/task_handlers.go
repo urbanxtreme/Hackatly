@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,16 @@ func InitMapHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
 	}
+
+	// Persist to database for current user
+	userIDStr, exists := c.Get("userID")
+	if exists {
+		id, err := strconv.ParseInt(userIDStr.(string), 10, 64)
+		if err == nil {
+			_ = SaveUserMap(id, req.Map)
+		}
+	}
+
 	InitMap(req.Map)
 	InitReservations()
 	c.JSON(http.StatusOK, gin.H{"status": "map initialized"})

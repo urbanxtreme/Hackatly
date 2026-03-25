@@ -101,14 +101,14 @@ func positionsConflict(a, b Task) bool {
 		(a.PutX == b.PutX && a.PutY == b.PutY) {
 		return true
 	}
-	if (b.GetX == a.GetX && b.GetY == a.GetY) ||
-		(b.GetX == a.PutX && b.GetY == a.PutY) {
-		return true
-	}
-	if (b.PutX == a.GetX && b.PutY == a.GetY) ||
-		(b.PutX == a.PutX && b.PutY == a.PutY) {
-		return true
-	}
+	// if (b.GetX == a.GetX && b.GetY == a.GetY) ||
+	// 	(b.GetX == a.PutX && b.GetY == a.PutY) {
+	// 	return true
+	// }
+	// if (b.PutX == a.GetX && b.PutY == a.GetY) ||
+	// 	(b.PutX == a.PutX && b.PutY == a.PutY) {
+	// 	return true
+	// }
 	
 	return false
 }
