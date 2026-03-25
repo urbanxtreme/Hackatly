@@ -226,3 +226,30 @@ func GetEfficiencyHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, history)
 }
+
+func AddExperienceHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid robot ID"})
+		return
+	}
+
+	var req struct {
+		State      string  `json:"state" binding:"required"`
+		Action     int     `json:"action"`
+		Reward     float64 `json:"reward"`
+		Efficiency float64 `json:"efficiency"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	if err := InsertExperience(id, req.State, req.Action, req.Reward, req.Efficiency); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{"message": "Experience logged successfully"})
+}

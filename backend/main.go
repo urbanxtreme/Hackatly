@@ -62,6 +62,7 @@ r.Use(func(c *gin.Context) {
 		protected.PATCH("/robots/:id/position", UpdateRobotPositionHandler)
 		protected.POST("/robots/:id/efficiency", AddEfficiencyHandler)
 		protected.GET("/robots/:id/efficiency", GetEfficiencyHandler)
+		protected.POST("/robots/:id/experience", AddExperienceHandler)
 
 
 		protected.GET("/logs", GetLogsHandler)

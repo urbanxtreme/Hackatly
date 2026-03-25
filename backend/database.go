@@ -38,6 +38,16 @@ type EfficiencyLog struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type ExperienceReplay struct {
+	ID         int64     `json:"id"`
+	BotID      int64     `json:"bot_id"`
+	State      string    `json:"state"`
+	Action     int       `json:"action"`
+	Reward     float64   `json:"reward"`
+	Efficiency float64   `json:"efficiency"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
 var DB *sql.DB
 
 func getJWTKey() []byte {
@@ -149,6 +159,36 @@ func CreateDatabase() error {
 		id INT AUTO_INCREMENT PRIMARY KEY,
 		bot_id INT NOT NULL,
 		score DOUBLE NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (bot_id) REFERENCES robots(id) ON DELETE CASCADE
+	)`)
+	if err != nil {
+		return err
+	}
+
+	err = CreateTable("experience_replay", `
+	CREATE TABLE IF NOT EXISTS experience_replay (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		bot_id INT NOT NULL,
+		state JSON NOT NULL,
+		action INT NOT NULL,
+		reward DOUBLE NOT NULL,
+		efficiency DOUBLE NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (bot_id) REFERENCES robots(id) ON DELETE CASCADE
+	)`)
+	if err != nil {
+		return err
+	}
+
+	err = CreateTable("experience_replay", `
+	CREATE TABLE IF NOT EXISTS experience_replay (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		bot_id INT NOT NULL,
+		state JSON NOT NULL,
+		action INT NOT NULL,
+		reward DOUBLE NOT NULL,
+		efficiency DOUBLE NOT NULL,
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
 		FOREIGN KEY (bot_id) REFERENCES robots(id) ON DELETE CASCADE
 	)`)

@@ -163,6 +163,14 @@ export async function addEfficiency(botId: number, score: number) {
   return res.json();
 }
 
+export async function addExperience(botId: number, state: number[], action: number, reward: number, efficiency: number) {
+  const res = await authFetch(`/robots/${botId}/experience`, {
+    method: 'POST',
+    body: JSON.stringify({ state: JSON.stringify(state), action, reward, efficiency })
+  });
+  return res.json();
+}
+
 export async function getEfficiencyHistory(botId: number) {
   const res = await authFetch(`/robots/${botId}/efficiency`);
   return res.json();
