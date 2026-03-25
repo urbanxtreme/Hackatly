@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardCanvas from './DashboardCanvas';
 import SimulationView from './SimulationView';
@@ -105,6 +105,19 @@ const Dashboard = () => {
   const pendingTasksCount = tasks.filter(t => t.status === 'pending' || t.status === 'waiting').length;
   const runningTasksCount = tasks.filter(t => t.status === 'in_progress').length;
   const errorRobots = robots.filter(r => r.state === 'error').length;
+  
+  const traversableCellCount = useMemo(() => {
+    let count = 0;
+    for (let x = 0; x < mapGrid.length; x++) {
+      for (let z = 0; z < mapGrid[x].length; z++) {
+        if (mapGrid[x][z] === 0) count++;
+      }
+    }
+    return count;
+  }, [mapGrid]);
+
+  const isAtCapacity = robots.length >= (traversableCellCount - 1);
+
   const efficiency = robots.length > 0
     ? Math.round((activeRobots / robots.length) * 100)
     : 0;
@@ -294,8 +307,19 @@ const Dashboard = () => {
                     <h2 className="panel-title">Fleet Monitoring</h2>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                       <span className="badge live">● LIVE</span>
-                      <button className="task-add-btn" onClick={() => setShowAddRobot(!showAddRobot)}>
-                        + Add Robot
+                      <button 
+                        className="task-add-btn" 
+                        style={{ 
+                          fontSize: '0.75rem', 
+                          padding: '0.4rem 0.8rem',
+                          background: isAtCapacity ? 'rgba(80,80,80,0.5)' : undefined,
+                          cursor: isAtCapacity ? 'not-allowed' : 'pointer',
+                          opacity: isAtCapacity ? 0.6 : 1
+                        }} 
+                        onClick={() => !isAtCapacity && setShowAddRobot(!showAddRobot)}
+                        title={isAtCapacity ? "Warehouse at capacity (N-1 rule active)" : "Add Robot"}
+                      >
+                        {isAtCapacity ? '🔒 0 Capacity' : '+ Add Robot'}
                       </button>
                       <input type="file" accept=".csv" ref={robotFileRef} onChange={handleRobotCSVUpload} style={{ display: 'none' }} />
                       <button className="task-add-btn csv-upload-btn" onClick={() => robotFileRef.current?.click()}>
@@ -308,8 +332,13 @@ const Dashboard = () => {
                     <div className="task-form" style={{ marginBottom: '1rem' }}>
                       <div className="task-form-row">
                         <input className="task-input" placeholder="Robot Name (e.g. RX-7)" value={newRobotName} onChange={(e) => setNewRobotName(e.target.value)} />
-                        <button className="task-add-btn" onClick={handleAddRobot}>Deploy</button>
+                        <button className="task-add-btn" onClick={handleAddRobot} disabled={isAtCapacity}>Deploy</button>
                       </div>
+                      {isAtCapacity && (
+                         <div style={{ fontSize: '0.7rem', color: '#ff4444', marginTop: '5px' }}>
+                           ⚠️ Maximum occupancy reached. Navigation requires at least one free cell.
+                         </div>
+                      )}
                     </div>
                   )}
 

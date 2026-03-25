@@ -302,11 +302,22 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
       activeApiRobots.forEach((apiBot, index) => {
         const existing = prev.find(r => r.id === apiBot.id);
         if (!existing) {
-          const pt = SPAWN_POINTS[index % SPAWN_POINTS.length];
+          // ── SMART PLACEMENT: Search for first available floor tile ──
+          let startPos = { x: 1, z: 1 };
+          let found = false;
+          for (let x = 1; x < GRID_SIZE - 1 && !found; x++) {
+            for (let z = 1; z < GRID_SIZE - 1 && !found; z++) {
+              if (currentGrid[x][z] === 0 && !newFleet.some(r => r.x === x && r.z === z)) {
+                startPos = { x, z };
+                found = true;
+              }
+            }
+          }
+
           newFleet.push({
             id: apiBot.id,
-            x: pt.x,
-            z: pt.z,
+            x: startPos.x,
+            z: startPos.z,
             color: `#${new THREE.Color(ROBOT_COLORS[index % ROBOT_COLORS.length]).getHexString()}`,
             missionPhase: 'IDLE',
             status: 'IDLE',
