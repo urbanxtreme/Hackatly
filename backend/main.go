@@ -70,6 +70,7 @@ r.Use(func(c *gin.Context) {
 
 		protected.POST("/init", InitMapHandler)
 		protected.GET("/map", GetMapHandler)
+		protected.PUT("/map", UpdateMapHandler)
 
 		protected.POST("/task", CreateTaskHandler)
 		protected.GET("/tasks", GetTasksHandler)
