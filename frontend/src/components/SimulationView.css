@@ -7,7 +7,8 @@
   grid-template-columns: 1fr 400px;
   gap: 1.5rem;
   margin-top: 1rem;
-  height: 650px;
+  height: calc(100vh - 12rem); /* Fill screen minus header/padding */
+  min-height: 600px;
   position: relative; /* For deadlock overlay */
 }
 
@@ -209,12 +210,51 @@
 @media (max-width: 1400px) {
   .simulation-view {
     grid-template-columns: 1fr;
-    grid-template-rows: 500px auto;
+    grid-template-rows: minmax(500px, 60vh) auto;
+    height: auto;
   }
   .sim-terminal {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 1.5rem;
+    height: auto;
+  }
+}
+
+@media (max-width: 1024px) {
+  .simulation-view {
+    grid-template-rows: 400px auto;
+  }
+  .sim-terminal {
+    grid-template-columns: 1fr;
+  }
+  .deadlock-warning {
+    padding: 2rem;
+    max-width: 90%;
+  }
+  .deadlock-warning h1 {
+    font-size: 1.8rem;
+  }
+  .telemetry-overlay {
+    top: 10px;
+    left: 10px;
+    width: 200px;
+  }
+  .telemetry-header h3 {
+    font-size: 0.8rem;
+  }
+  .tele-item span {
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .simulation-view {
+    grid-template-rows: 350px auto;
+    gap: 1rem;
+  }
+  .sim-panel {
+    padding: 1rem;
   }
 }
 
