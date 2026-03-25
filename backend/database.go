@@ -159,8 +159,8 @@ func CreateDatabase() error {
 	err = CreateTable("map_metadata", `
 	CREATE TABLE IF NOT EXISTS map_metadata (
 		user_id INT NOT NULL PRIMARY KEY,
-		rows INT NOT NULL,
-		cols INT NOT NULL,
+		num_rows INT NOT NULL,
+		num_cols INT NOT NULL,
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	)`)
 	if err != nil {
@@ -426,7 +426,7 @@ func SaveUserMap(userID int64, matrix [][]int) error {
 	_, _ = tx.Exec("DELETE FROM map_obstacles WHERE user_id = ?", userID)
 
 	// 2. Insert metadata
-	_, err = tx.Exec("INSERT INTO map_metadata (user_id, rows, cols) VALUES (?, ?, ?)", userID, rows, cols)
+	_, err = tx.Exec("INSERT INTO map_metadata (user_id, num_rows, num_cols) VALUES (?, ?, ?)", userID, rows, cols)
 	if err != nil {
 		return err
 	}
@@ -483,7 +483,7 @@ func SaveUserObstacles(userID int64, obstacles [][]int) error {
 
 func LoadUserMap(userID int64) ([][]int, error) {
 	var rows, cols int
-	err := DB.QueryRow("SELECT rows, cols FROM map_metadata WHERE user_id = ?", userID).Scan(&rows, &cols)
+	err := DB.QueryRow("SELECT num_rows, num_cols FROM map_metadata WHERE user_id = ?", userID).Scan(&rows, &cols)
 	if err != nil {
 		return nil, err
 	}

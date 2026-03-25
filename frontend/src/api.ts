@@ -189,3 +189,11 @@ export async function initMap(map: number[][]) {
   });
   return res.json();
 }
+
+export async function updateMap(obstacles: number[][]) {
+  const res = await authFetch('/map', {
+    method: 'PUT',
+    body: JSON.stringify({ obstacles }),
+  });
+  return res.json();
+}

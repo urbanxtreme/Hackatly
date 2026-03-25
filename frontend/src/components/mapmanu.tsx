@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { getMap, initMap } from '../api';
+import { getMap, updateMap } from '../api';
 import './mapmanu.css';
 
 interface MapManuProps {
@@ -61,7 +61,15 @@ const MapManu: React.FC<MapManuProps> = ({ onClose, onMapSaved }) => {
 
   const handleSave = async () => {
     try {
-      await initMap(grid);
+      // Convert to sparse coordinate list
+      const obstacles: number[][] = [];
+      grid.forEach((row, x) => {
+        row.forEach((val, z) => {
+          if (val === 1) obstacles.push([x, z]);
+        });
+      });
+
+      await updateMap(obstacles);
       onMapSaved(grid);
     } catch (err) {
       console.error("Failed to save map:", err);
