@@ -4,7 +4,8 @@ import DashboardCanvas from './DashboardCanvas';
 import SimulationView from './SimulationView';
 import TaskManager from './TaskManager';
 import MapManu from './mapmanu';
-import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot, deleteRobot } from '../api';
+import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot, deleteRobot, getMap, updateRobotPriority } from '../api';
+import { STATIC_GRID } from '../utils/grid';
 import './Dashboard.css';
 
 /* ─── Types ─── */
@@ -55,6 +56,7 @@ const Dashboard = () => {
 
   // Map Editor
   const [showMapEditor, setShowMapEditor] = useState(false);
+  const [mapGrid, setMapGrid] = useState<number[][]>(STATIC_GRID);
 
   // Auth guard
   useEffect(() => {
@@ -71,14 +73,16 @@ const Dashboard = () => {
   // Fetch data
   const fetchData = useCallback(async () => {
     try {
-      const [robotData, taskData, logData] = await Promise.all([
+      const [robotData, taskData, logData, mapData] = await Promise.all([
         getRobots(),
         getTasks(),
         getLogs(),
+        getMap(),
       ]);
       setRobots(Array.isArray(robotData) ? robotData : []);
       setTasks(Array.isArray(taskData) ? taskData : []);
       setLogs(Array.isArray(logData) ? logData : []);
+      if (mapData && mapData.map) setMapGrid(mapData.map);
     } catch (err) {
       console.error('Failed to fetch data:', err);
     }
@@ -130,6 +134,16 @@ const Dashboard = () => {
   const handleLogout = () => {
     clearToken();
     navigate('/');
+  };
+
+  // Update priority
+  const handleUpdatePriority = async (id: number, priority: string) => {
+    try {
+      await updateRobotPriority(id, priority);
+      fetchData(); // Refresh list to show updated priority
+    } catch (err: any) {
+      alert(err.message || 'Failed to update priority');
+    }
   };
 
   const batteryColor = (pct: number) => {
@@ -289,11 +303,16 @@ const Dashboard = () => {
                                   {robot.state}
                                 </span>
                               </td>
-                              <td>
-                                <span className={`status-chip ${robot.priority === 'high' ? 'error' : robot.priority === 'medium' ? 'idle' : 'active'}`}>
-                                  {robot.priority}
-                                </span>
-                              </td>
+                                <select 
+                                  className={`status-chip ${robot.priority === 'high' ? 'error' : robot.priority === 'medium' ? 'idle' : 'active'}`}
+                                  value={robot.priority}
+                                  onChange={(e) => handleUpdatePriority(robot.id, e.target.value)}
+                                  style={{ border: 'none', cursor: 'pointer', outline: 'none', background: 'transparent', width: '100%', textAlign: 'center' }}
+                                >
+                                  <option value="low">low</option>
+                                  <option value="medium">medium</option>
+                                  <option value="high">high</option>
+                                </select>
                               <td>
                                 <div className="battery-wrap">
                                   <div className="battery-bar">
@@ -358,7 +377,7 @@ const Dashboard = () => {
               </section>
             </>
           ) : activeTab === 'simulation' ? (
-            <SimulationView apiRobots={robots} tasks={tasks} onFetchData={fetchData} />
+            <SimulationView apiRobots={robots} tasks={tasks} onFetchData={fetchData} apiGrid={mapGrid} />
           ) : activeTab === 'settings' ? (
             <div className="panel glass" style={{ padding: '2rem' }}>
               <div className="settings-header" style={{ marginBottom: '2rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>

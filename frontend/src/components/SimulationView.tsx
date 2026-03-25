@@ -4,7 +4,7 @@ import { OrbitControls, Grid, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
 import TaskManager, { type ApiTask } from './TaskManager';
-import { completeTask, updateRobotPosition, addLog, addEfficiency, addExperience, getMap, updateRobotState, updateRobotTask } from '../api';
+import { completeTask, updateRobotPosition, addLog, addEfficiency, addExperience, updateRobotState, updateRobotTask } from '../api';
 import './SimulationView.css';
 
 /* ─── Simulation Configuration ─── */
@@ -104,6 +104,7 @@ interface SimulationViewProps {
   apiRobots?: any[];
   tasks?: ApiTask[];
   onFetchData?: () => void;
+  apiGrid?: number[][];
 }
 
 /* ─── 3D Components ─── */
@@ -249,11 +250,18 @@ const ConflictZones = ({ robots, collisionCells }: { robots: RobotState[]; colli
   );
 };
 
+const OFFLINE_MODE = false;
+const MOCK_ROBOTS: any[] = [];
+const MOCK_TASKS: any[] = [];
+
 /* ─── Main Simulation Component ─── */
-const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }: SimulationViewProps) => {
+const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, apiGrid }: SimulationViewProps) => {
+  const activeApiRobots = OFFLINE_MODE && apiRobots.length === 0 ? MOCK_ROBOTS : apiRobots;
+  const activeTasks = OFFLINE_MODE && tasks.length === 0 ? MOCK_TASKS : tasks;
+  const currentGrid = apiGrid && apiGrid.length > 0 ? apiGrid : STATIC_GRID;
+
 
   const [robots, setRobots] = useState<RobotState[]>([]);
-  const [grid, setGrid] = useState<number[][]>([]);
   const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
 
   const [selectedRobot, setSelectedRobot] = useState<RobotState | null>(null);
@@ -284,19 +292,14 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
   useEffect(() => { robotsRef.current = robots; }, [robots]);
 
   /* ─── Fetch Map from Backend ─── */
-  useEffect(() => {
-    getMap().then(data => {
-      if (data && data.map) setGrid(data.map);
-    }).catch(err => console.error("SimView: Failed to load map:", err));
-  }, []);
 
-  /* ─── Sync Robots with Backend ─── */
+
   useEffect(() => {
     setRobots(prev => {
       const newFleet = [...prev];
       let hasChanges = false;
 
-      apiRobots.forEach((apiBot, index) => {
+      activeApiRobots.forEach((apiBot, index) => {
         const existing = prev.find(r => r.id === apiBot.id);
         if (!existing) {
           const pt = SPAWN_POINTS[index % SPAWN_POINTS.length];
@@ -411,7 +414,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
       }
 
       // 3. Assign unassigned 'in_progress' or 'pending' tasks to IDLE robots
-      const activeBackendTasks = tasks.filter(t =>
+      const activeBackendTasks = activeTasks.filter(t =>
         (t.status === 'in_progress' || t.status === 'pending') &&
         !completedTaskIds.has(t.task_id)
       );
@@ -440,7 +443,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
           const dx = backendTask.put_x;
           const dz = backendTask.put_y;
 
-          const testPath = astar({ x: bot.x, z: bot.z }, { x: px, z: pz }, [], grid);
+          const testPath = astar({ x: bot.x, z: bot.z }, { x: px, z: pz }, [], currentGrid);
           if (testPath.length > 0) {
             updateRobotState(bot.id, 'active');
             updateRobotTask(bot.id, backendTask.task_id);
@@ -461,7 +464,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
       }
       return hasChanges ? updatedList : prev;
     });
-  }, [tasks, completedTaskIds, grid]);
+  }, [tasks, completedTaskIds, currentGrid]);
 
   /* ─── Queue Delay Tracking (While API Resolves Deadlocks) ─── */
   useEffect(() => {
@@ -485,7 +488,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
           if ((bot.status !== 'MOVING' && bot.status !== 'BLOCKED') || bot.pathIndex < bot.path.length) return bot;
           const m = { ...bot.metrics };
           if (bot.missionPhase === 'TO_PICK') {
-            const np = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], grid);
+            const np = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], currentGrid);
             return { ...bot, path: np, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m };
           } else if (bot.missionPhase === 'TO_DROP') {
             return { ...bot, missionPhase: 'FINISHING' as const, status: 'IDLE' as const, payloadVisible: false, metrics: m };
@@ -564,7 +567,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
       });
     }, TICK_INTERVAL);
     return () => clearInterval(timer);
-  }, [simulationMode, grid]);
+  }, [simulationMode, currentGrid]);
 
   /* ─── Optimized Simulation Tick Engine (RoboFlow Middleware Active) ─── */
   useEffect(() => {
@@ -691,7 +694,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
             const newPos = occupancyFixMap.get(bot.id)!;
             const goal = bot.path.length > 0 ? bot.path[bot.path.length - 1] : {x: bot.x, z: bot.z};
             const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
-            const newPath = astar(newPos, goal, obstacles, grid);
+            const newPath = astar(newPos, goal, obstacles, currentGrid);
             needsUpdate = true;
             return { ...bot, x: newPos.x, z: newPos.z, path: newPath, pathIndex: 1, status: 'MOVING' as const, consecutiveBlocks: 0, lastLogEvent: { msg: `[Local Brain] Same-cell collision resolved — repositioned to [${newPos.x},${newPos.z}]`, id: Date.now() + Math.random() } };
           }
@@ -700,7 +703,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
           if (cycleRerouteIds.has(bot.id)) {
             const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
             const goal = bot.path.length > 0 ? bot.path[bot.path.length - 1] : {x: bot.x, z: bot.z};
-            const newPath = astar({x: bot.x, z: bot.z}, goal, obstacles, grid);
+            const newPath = astar({x: bot.x, z: bot.z}, goal, obstacles, currentGrid);
             needsUpdate = true;
             if (newPath.length > 0) {
               return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, consecutiveBlocks: 0, lastLogEvent: { msg: `[Local Brain] Cycle broken — rerouting around deadlock chain`, id: Date.now() + Math.random() } };
@@ -713,7 +716,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
             for (const o of offsets) {
               const wx = bot.x + o.dx, wz = bot.z + o.dz;
               if (wx >= 0 && wx < GRID_SIZE && wz >= 0 && wz < GRID_SIZE && STATIC_GRID[wx][wz] === 0 && !prev.some(r => r.x === wx && r.z === wz)) {
-                const ep = astar({x: bot.x, z: bot.z}, {x: wx, z: wz}, [], grid);
+                const ep = astar({x: bot.x, z: bot.z}, {x: wx, z: wz}, [], currentGrid);
                 if (ep.length > 0) { needsUpdate = true; return { ...bot, missionPhase: 'TO_WAIT' as const, status: 'MOVING' as const, path: ep, pathIndex: 1, consecutiveBlocks: 0 }; }
               }
             }
@@ -802,7 +805,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
                 // Reroute using Soft Obstacles (high cost to push it to empty adjacent lanes)
                 const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
                 const target = bot.path[bot.path.length - 1];
-                const newPath = astar({x: bot.x, z: bot.z}, target, obstacles, grid);
+                const newPath = astar({x: bot.x, z: bot.z}, target, obstacles, currentGrid);
                 if (newPath.length > 0) {
                   needsUpdate = true;
                   m.reroutePenalties = (m.reroutePenalties || 0) + 1;
@@ -832,13 +835,13 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
             mlReward = +100;
             fireTuple(0, mlReward, m);
             if (bot.missionPhase === 'TO_PICK') {
-              const np = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], grid);
+              const np = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], currentGrid);
               return { ...bot, path: np, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
             } else if (bot.missionPhase === 'TO_DROP') {
               const offsets = [{dx:2,dz:0},{dx:-2,dz:0},{dx:0,dz:2},{dx:0,dz:-2},{dx:2,dz:2},{dx:-2,dz:-2}];
               let wt = {x: bot.x, z: bot.z};
               for (const o of offsets) { const wx=bot.x+o.dx,wz=bot.z+o.dz; if(wx>=0&&wx<GRID_SIZE&&wz>=0&&wz<GRID_SIZE&&STATIC_GRID[wx][wz]===0){wt={x:wx,z:wz};break;} }
-              const np = astar({ x: bot.x, z: bot.z }, wt, [], grid);
+              const np = astar({ x: bot.x, z: bot.z }, wt, [], currentGrid);
               return { ...bot, path: np, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
             } else if (bot.missionPhase === 'TO_WAIT') {
               return { ...bot, missionPhase: 'FINISHING' as const, status: 'IDLE' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
@@ -852,7 +855,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
     }, TICK_INTERVAL);
 
     return () => clearInterval(timer);
-  }, [hasDeadlock, simulationMode, grid]);
+  }, [hasDeadlock, simulationMode, currentGrid]);
 
 
 
@@ -886,7 +889,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
           <color attach="background" args={['#050510']} />
           <ambientLight intensity={0.5} />
           <directionalLight position={[20, 50, 20]} intensity={1} />
-          <WarehouseEnvironment grid={grid} />
+          <WarehouseEnvironment grid={currentGrid} />
           {robots.map(r => <RobotModel key={r.id} robot={r} onSelect={setSelectedRobot} isDeadlocked={normalDeadlocks.has(r.id)} />)}
           <PathOverlay robots={robots} mode={simulationMode} />
           {simulationMode === 'NORMAL' && <ConflictZones robots={robots} collisionCells={collisionCells} />}
