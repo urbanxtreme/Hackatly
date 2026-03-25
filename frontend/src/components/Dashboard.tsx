@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import DashboardCanvas from './DashboardCanvas';
 import SimulationView from './SimulationView';
 import TaskManager from './TaskManager';
+import MapManu from './mapmanu';
 import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot, deleteRobot } from '../api';
 import './Dashboard.css';
 
@@ -51,6 +52,9 @@ const Dashboard = () => {
   // Robot form
   const [showAddRobot, setShowAddRobot] = useState(false);
   const [newRobotName, setNewRobotName] = useState('');
+
+  // Map Editor
+  const [showMapEditor, setShowMapEditor] = useState(false);
 
   // Auth guard
   useEffect(() => {
@@ -355,6 +359,45 @@ const Dashboard = () => {
             </>
           ) : activeTab === 'simulation' ? (
             <SimulationView apiRobots={robots} tasks={tasks} onFetchData={fetchData} />
+          ) : activeTab === 'settings' ? (
+            <div className="panel glass" style={{ padding: '2rem' }}>
+              <div className="settings-header" style={{ marginBottom: '2rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+                <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>Warehouse Configuration</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Configure and manage the warehouse environment.</p>
+              </div>
+
+              <div className="settings-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
+                <div className="settings-card glass" style={{ padding: '1.5rem', border: '1px solid var(--border)', borderRadius: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                    <span style={{ fontSize: '1.5rem' }}>🗺️</span>
+                    <h3 style={{ margin: 0 }}>Warehouse Blueprint</h3>
+                  </div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Modify the warehouse layout by drawing storage racks and obstacles. This layout determines robot pathfinding.
+                  </p>
+                  <button 
+                    className="task-add-btn" 
+                    style={{ width: '100%', padding: '0.75rem' }} 
+                    onClick={() => setShowMapEditor(true)}
+                  >
+                    Edit Layout Blueprint
+                  </button>
+                </div>
+
+                <div className="settings-card glass" style={{ padding: '1.5rem', border: '1px solid var(--border)', borderRadius: '12px', opacity: 0.6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+                    <span style={{ fontSize: '1.5rem' }}>⛓️</span>
+                    <h3 style={{ margin: 0 }}>Network Settings</h3>
+                  </div>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '1.5rem' }}>
+                    Configure API endpoints and WebSocket connection parameters.
+                  </p>
+                  <button className="task-add-btn" style={{ width: '100%', padding: '0.75rem' }} disabled>
+                    Offline
+                  </button>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="panel glass" style={{ padding: '4rem', textAlign: 'center' }}>
               <h2 className="panel-title">Coming Soon</h2>
@@ -363,6 +406,17 @@ const Dashboard = () => {
           )}
         </main>
       </div>
+
+      {/* ─── Map Editor Overlay ─── */}
+      {showMapEditor && (
+        <MapManu 
+          onClose={() => setShowMapEditor(false)} 
+          onMapSaved={() => {
+            setShowMapEditor(false);
+            fetchData();
+          }} 
+        />
+      )}
     </div>
   );
 };

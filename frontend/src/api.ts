@@ -95,6 +95,14 @@ export async function updateRobotPosition(id: number, x: number, y: number) {
   return res.json();
 }
 
+export async function updateRobotTask(id: number, taskId: string) {
+  const res = await authFetch(`/robots/${id}/task`, {
+    method: 'PATCH',
+    body: JSON.stringify({ task_id: taskId }),
+  });
+  return res.json();
+}
+
 export async function deleteRobot(id: number) {
   const res = await authFetch(`/robots/${id}`, {
     method: 'DELETE',
@@ -186,6 +194,14 @@ export async function initMap(map: number[][]) {
   const res = await authFetch('/init', {
     method: 'POST',
     body: JSON.stringify({ map }),
+  });
+  return res.json();
+}
+
+export async function updateMap(obstacles: number[][]) {
+  const res = await authFetch('/map', {
+    method: 'PUT',
+    body: JSON.stringify({ obstacles }),
   });
   return res.json();
 }

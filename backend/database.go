@@ -181,16 +181,24 @@ func CreateDatabase() error {
 		return err
 	}
 
-	err = CreateTable("experience_replay", `
-	CREATE TABLE IF NOT EXISTS experience_replay (
-		id INT AUTO_INCREMENT PRIMARY KEY,
-		bot_id INT NOT NULL,
-		state JSON NOT NULL,
-		action INT NOT NULL,
-		reward DOUBLE NOT NULL,
-		efficiency DOUBLE NOT NULL,
-		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (bot_id) REFERENCES robots(id) ON DELETE CASCADE
+	err = CreateTable("map_metadata", `
+	CREATE TABLE IF NOT EXISTS map_metadata (
+		user_id INT NOT NULL PRIMARY KEY,
+		num_rows INT NOT NULL,
+		num_cols INT NOT NULL,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	)`)
+	if err != nil {
+		return err
+	}
+
+	err = CreateTable("map_obstacles", `
+	CREATE TABLE IF NOT EXISTS map_obstacles (
+		user_id INT NOT NULL,
+		x INT NOT NULL,
+		y INT NOT NULL,
+		PRIMARY KEY (user_id, x, y),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	)`)
 	if err != nil {
 		return err
@@ -242,26 +250,27 @@ func VerifyToken(tokenString string) (*jwt.RegisteredClaims, error) {
 
 	return nil, fmt.Errorf("invalid token")
 }
-func CreateUser(name, password, email string) (string, error) {
+func CreateUser(name, password, email string) (int64, string, error) {
 	query := "INSERT INTO users (name, password,email) VALUES (?, ?, ?)"
 	hashPassword, err := HashPassword(password)
 	if err != nil {
-		return "", fmt.Errorf("failed to hash password: %w", err)
+		return 0, "", fmt.Errorf("failed to hash password: %w", err)
 	}
 	result, err := DB.Exec(query, name, hashPassword,email)
 	if err != nil {
-		return "", fmt.Errorf("failed to insert user: %w", err)
+		return 0, "", fmt.Errorf("failed to insert user: %w", err)
 	}
 
 	lastID, err := result.LastInsertId()
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
 
-	return GenerateToken(lastID)
+	token, err := GenerateToken(lastID)
+	return lastID, token, err
 }
 
-func ValidateUser(name, password string) (string, error) {
+func ValidateUser(name, password string) (int64, string, error) {
 	query := "SELECT id, password FROM users WHERE name = ?"
 
 	var userid int64
@@ -269,14 +278,15 @@ func ValidateUser(name, password string) (string, error) {
 
 	err := DB.QueryRow(query, name).Scan(&userid, &dbPassword)
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
 
 	if VerifyPassword(password, dbPassword) {
-		return GenerateToken(userid)
+		token, err := GenerateToken(userid)
+		return userid, token, err
 	}
 
-	return "", fmt.Errorf("invalid password")
+	return 0, "", fmt.Errorf("invalid password")
 }
 
 // Robot functions
@@ -306,6 +316,12 @@ func UpdateRobotPriority(id int64, priority string) error {
 func UpdateRobotPosition(id int64, x, y float64) error {
 	query := "UPDATE robots SET current_position_x = ?, current_position_y = ? WHERE id = ?"
 	_, err := DB.Exec(query, x, y, id)
+	return err
+}
+
+func UpdateRobotTask(id int64, taskID string) error {
+	query := "UPDATE robots SET current_task = ? WHERE id = ?"
+	_, err := DB.Exec(query, taskID, id)
 	return err
 }
 
@@ -413,4 +429,111 @@ func GetEfficiencyHistory(botID int64) ([]EfficiencyLog, error) {
 		logs = append(logs, l)
 	}
 	return logs, nil
+}
+
+// Map persistence functions
+
+func SaveUserMap(userID int64, matrix [][]int) error {
+	rows := len(matrix)
+	cols := 0
+	if rows > 0 {
+		cols = len(matrix[0])
+	}
+
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Delete old metadata and obstacles
+	_, _ = tx.Exec("DELETE FROM map_metadata WHERE user_id = ?", userID)
+	_, _ = tx.Exec("DELETE FROM map_obstacles WHERE user_id = ?", userID)
+
+	// 2. Insert metadata
+	_, err = tx.Exec("INSERT INTO map_metadata (user_id, num_rows, num_cols) VALUES (?, ?, ?)", userID, rows, cols)
+	if err != nil {
+		return err
+	}
+
+	// 3. Insert obstacles (efficiency: only save 1s)
+	stmt, err := tx.Prepare("INSERT INTO map_obstacles (user_id, x, y) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for x := 0; x < rows; x++ {
+		for y := 0; y < cols; y++ {
+			if matrix[x][y] == 1 {
+				_, err = stmt.Exec(userID, x, y)
+				if err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func SaveUserObstacles(userID int64, obstacles [][]int) error {
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Delete old obstacles (but keep metadata - dimensions stay the same)
+	_, _ = tx.Exec("DELETE FROM map_obstacles WHERE user_id = ?", userID)
+
+	// 2. Insert new obstacles
+	stmt, err := tx.Prepare("INSERT INTO map_obstacles (user_id, x, y) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, p := range obstacles {
+		if len(p) == 2 {
+			_, err = stmt.Exec(userID, p[0], p[1])
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
+func LoadUserMap(userID int64) ([][]int, error) {
+	var rows, cols int
+	err := DB.QueryRow("SELECT num_rows, num_cols FROM map_metadata WHERE user_id = ?", userID).Scan(&rows, &cols)
+	if err != nil {
+		return nil, err
+	}
+
+	// Initialize empty matrix
+	matrix := make([][]int, rows)
+	for i := range matrix {
+		matrix[i] = make([]int, cols)
+	}
+
+	// Load obstacles
+	obsRows, err := DB.Query("SELECT x, y FROM map_obstacles WHERE user_id = ?", userID)
+	if err != nil {
+		return nil, err
+	}
+	defer obsRows.Close()
+
+	for obsRows.Next() {
+		var x, y int
+		if err := obsRows.Scan(&x, &y); err == nil {
+			if x >= 0 && x < rows && y >= 0 && y < cols {
+				matrix[x][y] = 1
+			}
+		}
+	}
+
+	return matrix, nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,9 +17,58 @@ func InitMapHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
 	}
+
+	// Persist to database for current user
+	userIDStr, exists := c.Get("userID")
+	if exists {
+		id, err := strconv.ParseInt(userIDStr.(string), 10, 64)
+		if err == nil {
+			_ = SaveUserMap(id, req.Map)
+		}
+	}
+
 	InitMap(req.Map)
 	InitReservations()
 	c.JSON(http.StatusOK, gin.H{"status": "map initialized"})
+}
+
+func UpdateMapHandler(c *gin.Context) {
+	var req struct {
+		Obstacles [][]int `json:"obstacles" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	userIDStr, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	id, err := strconv.ParseInt(userIDStr.(string), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse userID"})
+		return
+	}
+
+	// 1. Save to DB (sparse)
+	if err := SaveUserObstacles(id, req.Obstacles); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 2. Re-load full matrix to update memory (A* needs it)
+	matrix, err := LoadUserMap(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	InitMap(matrix)
+	InitReservations()
+
+	c.JSON(http.StatusOK, gin.H{"status": "map updated", "obstacles_count": len(req.Obstacles)})
 }
 
 func GetMapHandler(c *gin.Context) {
@@ -164,6 +214,13 @@ func processQueuedTasks() {
 
 	log.Printf("[TaskWorker] Processing %d new task(s)...\n", len(newTasks))
 
+	// Evict any idle robots occupying get/put positions
+	for _, t := range newTasks {
+		evictIdleRobots(t.GetX, t.GetY)
+		evictIdleRobots(t.PutX, t.PutY)
+	}
+
+
 	// Also load existing in_progress tasks from DB so deadlock detection
 	// can catch conflicts between new tasks and already-running tasks.
 	var existingTasks []Task
@@ -214,4 +271,43 @@ func processQueuedTasks() {
 	}
 
 	log.Println("[TaskWorker] Batch processing complete")
+}
+
+func evictIdleRobots(x, y int) {
+	robots, err := GetAllRobots()
+	if err != nil {
+		return
+	}
+
+	for _, r := range robots {
+		// If robot is exactly at the position and is idle
+		if r.State == "idle" && int(r.CurrentPositionX) == x && int(r.CurrentPositionY) == y {
+			log.Printf("[TaskWorker] Evicting idle robot %d from blocking position (%d,%d)\n", r.ID, x, y)
+			
+			// Find a nearby free cell
+			dx := []int{-1, 1, 0, 0}
+			dy := []int{0, 0, -1, 1}
+			
+			for i := 0; i < 4; i++ {
+				nx, ny := x+dx[i], y+dy[i]
+				if IsWalkable(nx, ny) {
+					// Check if any other robot is there
+					occupied := false
+					for _, other := range robots {
+						if int(other.CurrentPositionX) == nx && int(other.CurrentPositionY) == ny {
+							occupied = true
+							break
+						}
+					}
+					
+					if !occupied {
+						UpdateRobotPosition(r.ID, float64(nx), float64(ny))
+						AddLog(r.ID, "Evicted to clear path for new task")
+						log.Printf("[TaskWorker] Robot %d moved to (%d,%d)\n", r.ID, nx, ny)
+						return
+					}
+				}
+			}
+		}
+	}
 }

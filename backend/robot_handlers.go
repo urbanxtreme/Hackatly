@@ -114,6 +114,30 @@ func UpdateRobotPositionHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Robot position updated successfully"})
 }
 
+func UpdateRobotTaskHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid robot ID"})
+		return
+	}
+
+	var req struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	if err := UpdateRobotTask(id, req.TaskID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Robot task updated successfully"})
+}
+
 
 func GetRobotByIDHandler(c *gin.Context) {
 	idStr := c.Param("id")
