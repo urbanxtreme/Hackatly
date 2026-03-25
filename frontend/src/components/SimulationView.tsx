@@ -208,19 +208,6 @@ const WarehouseEnvironment = ({ grid = [] }: { grid: number[][] }) => {
   );
 };
 
-/* ─── Mock Data for Offline Testing ─── */
-const MOCK_ROBOTS = [
-  { id: 1, name: 'Bot-Alpha', state: 'idle', priority: 'high', current_position_x: 1, current_position_y: 1, current_task: 'none', battery: 100 },
-  { id: 2, name: 'Bot-Beta', state: 'idle', priority: 'medium', current_position_x: 28, current_position_y: 28, current_task: 'none', battery: 100 }
-];
-
-const MOCK_TASKS = [
-  { task_id: 'offline-task-1', get_x: 15, get_y: 10, put_x: 3, put_y: 2, priority: 'high', status: 'pending', created_at: new Date().toISOString() },
-  { task_id: 'offline-task-2', get_x: 14, get_y: 18, put_x: 25, put_y: 3, priority: 'medium', status: 'pending', created_at: new Date().toISOString() },
-  { task_id: 'offline-task-3', get_x: 8, get_y: 5, put_x: 20, put_y: 20, priority: 'low', status: 'pending', created_at: new Date().toISOString() }
-];
-
-const OFFLINE_MODE = true; // Set to false when testing with Go Backend!
 
 /* ─── Path Visualization & Conflict Zone Components ─── */
 const PathOverlay = ({ robots, mode }: { robots: RobotState[]; mode: 'NORMAL' | 'OPTIMIZED' }) => (
@@ -260,8 +247,6 @@ const ConflictZones = ({ robots, collisionCells }: { robots: RobotState[]; colli
 
 /* ─── Main Simulation Component ─── */
 const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }: SimulationViewProps) => {
-  const activeApiRobots = OFFLINE_MODE && apiRobots.length === 0 ? MOCK_ROBOTS : apiRobots;
-  const activeTasks = OFFLINE_MODE && tasks.length === 0 ? MOCK_TASKS : tasks;
 
   const [robots, setRobots] = useState<RobotState[]>([]);
   const [grid, setGrid] = useState<number[][]>([]);
@@ -307,7 +292,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
       const newFleet = [...prev];
       let hasChanges = false;
 
-      activeApiRobots.forEach((apiBot, index) => {
+      apiRobots.forEach((apiBot, index) => {
         const existing = prev.find(r => r.id === apiBot.id);
         if (!existing) {
           const pt = SPAWN_POINTS[index % SPAWN_POINTS.length];
@@ -330,13 +315,13 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
         }
       });
 
-      const validIds = new Set(activeApiRobots.map(r => r.id));
+      const validIds = new Set(apiRobots.map(r => r.id));
       const filteredFleet = newFleet.filter(r => validIds.has(r.id));
       if (filteredFleet.length !== newFleet.length) hasChanges = true;
 
       return hasChanges ? filteredFleet : prev;
     });
-  }, [activeApiRobots]);
+  }, [apiRobots]);
 
   /* ─── API Side Effects (Isolated from State Updaters) ─── */
   const apiCallInProgress = useRef(new Set<number>());
@@ -388,7 +373,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
   /* ─── Backend Integration & Live Task Assignment ─── */
   useEffect(() => {
     // 1. Detect deadlock or failure states
-    const isDeadlocked = activeTasks.some(t => t.status === 'waiting');
+    const isDeadlocked = tasks.some(t => t.status === 'waiting');
     setHasDeadlock(isDeadlocked);
 
     // 2. Reconcile: if backend has marked a task as 'failed' or 'completed',
@@ -401,7 +386,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
         const bot = updatedList[i];
         if (!bot.currentTaskId) continue;
 
-        const backendTask = activeTasks.find(t => t.task_id === bot.currentTaskId);
+        const backendTask = tasks.find(t => t.task_id === bot.currentTaskId);
         if (!backendTask) continue;
 
         if (backendTask.status === 'failed' || backendTask.status === 'completed') {
@@ -422,7 +407,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
       }
 
       // 3. Assign unassigned 'in_progress' or 'pending' tasks to IDLE robots
-      const activeBackendTasks = activeTasks.filter(t =>
+      const activeBackendTasks = tasks.filter(t =>
         (t.status === 'in_progress' || t.status === 'pending') &&
         !completedTaskIds.has(t.task_id)
       );
@@ -472,11 +457,11 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
       }
       return hasChanges ? updatedList : prev;
     });
-  }, [activeTasks, completedTaskIds, grid]);
+  }, [tasks, completedTaskIds, grid]);
 
   /* ─── Queue Delay Tracking (While API Resolves Deadlocks) ─── */
   useEffect(() => {
-    if (!hasDeadlock || simulationMode !== 'OPTIMIZED') return;
+    if (!hasDeadlock) return;
     const timer = setInterval(() => {
       setRobots(prev => prev.map(bot => ({
         ...bot,
@@ -681,9 +666,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
               const eff = Math.max(0, 100 - (metric.blockedTicks * 0.5) - ((metric.reroutePenalties || 0) * 2));
               console.log(`[ML Sensor] Bot ${bot.id} | Action: ${act} | Reward: ${rew} | Eff: ${eff}% | State Array:`, stateArray);
               
-              if (!OFFLINE_MODE) {
-                 addExperience(bot.id, stateArray, act, rew, eff).catch(() => { });
-              }
+              addExperience(bot.id, stateArray, act, rew, eff).catch(() => { });
             }
           };
           // -----------------------------------------
@@ -909,7 +892,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
 
         <div className="panel glass" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
           <TaskManager
-            tasks={activeTasks}
+            tasks={tasks}
             onTaskAdded={onFetchData}
             onTaskDeleted={onFetchData}
           />
