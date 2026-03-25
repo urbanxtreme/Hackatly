@@ -611,6 +611,9 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
                 occupiedByHigher.add(nkey);
                 return;
               }
+            }
+          } else {
+            occupiedByHigher.add(key);
           }
         });
 
@@ -752,6 +755,22 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
           }
           if (bot.status === 'BLOCKED') m.blockedTicks += 1;
 
+          // LB-3: Yielding bot — wait 1 tick (Higher priority than movement)
+          if (yieldIds.has(bot.id)) {
+            needsUpdate = true;
+            m.blockedTicks += 1;
+            fireTuple(0, -10, m);
+            return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: (bot.consecutiveBlocks || 0) + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
+          }
+
+          // Courtesy Wait & Recovery Logic
+          if ((bot.consecutiveBlocks || 0) < 0) {
+             needsUpdate = true;
+             m.blockedTicks += 1;
+             fireTuple(0, -1, m); 
+             return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: bot.consecutiveBlocks + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
+          }
+
           if (bot.pathIndex < bot.path.length) {
             const nextStep = bot.path[bot.pathIndex];
 
@@ -766,15 +785,28 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
               mlReward = -10; // Obstacle penalty
               mlAction = 0;   // Forced wait
               const blocks = (bot.consecutiveBlocks || 0) + 1;
-              if (blocks > 4) {
-                // Dynamic Repathing! Calculate around existing standing robots
-                const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({ x: r.x, z: r.z }));
+              
+              // ── LB-7: Anti-Dance Symmetry Breaker & Central Server Hook ──
+              // Stagger the reroute timer based on Robot ID so two bots never sidestep 
+              // symmetrically. The lower ID dodges immediately, the higher ID stands still.
+              const blocker = prev.find(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
+              let rerouteThreshold = (blocker && bot.id < blocker.id) ? 1 : 4;
+              
+              // Central Server Hook: If the backend detects a global cycle graph, 
+              // compress the reroute threshold and add entropy to shatter the loop.
+              if (hasDeadlock) {
+                rerouteThreshold = Math.max(0, rerouteThreshold - Math.floor(Math.random() * 2));
+              }
+
+              if (blocks > rerouteThreshold) {
+                // Reroute using Soft Obstacles (high cost to push it to empty adjacent lanes)
+                const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
                 const target = bot.path[bot.path.length - 1];
-                const newPath = astar({ x: bot.x, z: bot.z }, target, obstacles, grid);
+                const newPath = astar({x: bot.x, z: bot.z}, target, obstacles, grid);
                 if (newPath.length > 0) {
-                  logEvt = { msg: `Obstacle detected! Rerouting dynamically around [${obstacles[0]?.x}, ${obstacles[0]?.z}]`, id: Date.now() + Math.random() };
                   needsUpdate = true;
                   m.reroutePenalties = (m.reroutePenalties || 0) + 1;
+                  logEvt = { msg: `[Local Brain] Rerouting around blockage at [${nextStep.x},${nextStep.z}]`, id: Date.now() + Math.random() };
                   fireTuple(mlAction, mlReward, m);
                   return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
                 }
@@ -783,13 +815,21 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
               fireTuple(mlAction, mlReward, m);
               return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: blocks, batteryWarning: bWarn, lastLogEvent: logEvt };
             } else {
+              // Path is clear!
               needsUpdate = true;
               fireTuple(mlAction, mlReward, m);
+
+              // If we were just blocked, trigger Courtesy Wait (2 Ticks) to let others clear out
+              if ((bot.consecutiveBlocks || 0) > 0) {
+                return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: -2, batteryWarning: bWarn, lastLogEvent: logEvt };
+              }
+
               return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
             }
           } else {
+            // Goal reached / Action complete
             needsUpdate = true;
-            mlReward = +100; // Goal reached / Action complete
+            mlReward = +100;
             fireTuple(0, mlReward, m);
             if (bot.missionPhase === 'TO_PICK') {
               const np = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], grid);
@@ -805,68 +845,6 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
             }
             return bot;
           }
-
-          // LB-3: Yielding bot — wait 1 tick
-          if (yieldIds.has(bot.id)) {
-            needsUpdate = true;
-            m.blockedTicks += 1;
-            return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: (bot.consecutiveBlocks || 0) + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
-          }
-
-          const nextStep = bot.path[bot.pathIndex];
-          const occupied = prev.some(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
-
-          if (occupied) {
-            const blocks = (bot.consecutiveBlocks || 0) + 1;
-            
-            // ── LB-7: Anti-Dance Symmetry Breaker & Central Server Hook ──
-            // Stagger the reroute timer based on Robot ID so two bots never sidestep 
-            // symmetrically. The lower ID dodges immediately, the higher ID stands still.
-            const blocker = prev.find(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
-            let rerouteThreshold = 2; 
-            if (blocker) {
-               rerouteThreshold = (bot.id < blocker.id) ? 1 : 4;
-            }
-            
-            // Central Server Hook: If the backend detects a global cycle graph, 
-            // compress the reroute threshold and add entropy to shatter the loop.
-            if (hasDeadlock) {
-               rerouteThreshold = Math.max(0, rerouteThreshold - Math.floor(Math.random() * 2));
-            }
-
-            if (blocks > rerouteThreshold) {
-              // Reroute using Soft Obstacles (high cost to push it to empty adjacent lanes)
-              const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
-              const goal = bot.path[bot.path.length - 1];
-              const newPath = astar({x: bot.x, z: bot.z}, goal, obstacles, grid);
-              if (newPath.length > 0) {
-                needsUpdate = true;
-                m.reroutePenalties = (m.reroutePenalties || 0) + 1;
-                logEvt = { msg: `[Local Brain] Rerouting around blockage at [${nextStep.x},${nextStep.z}]`, id: Date.now() + Math.random() };
-                return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
-              }
-            }
-            if (bot.status !== 'BLOCKED') needsUpdate = true;
-            return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: blocks, batteryWarning: bWarn, lastLogEvent: logEvt };
-          }
-
-          if ((bot.consecutiveBlocks || 0) > 0) {
-            // ── Courtesy Wait (2 Ticks) ──
-            // The cell just became free, but we were blocked. Wait 2 extra ticks 
-            // to let the dodging robot completely clear the adjacent area.
-            // We set consecutiveBlocks to -2 so we wait 2 cycles (it counts up).
-            needsUpdate = true;
-            return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: -2, batteryWarning: bWarn, lastLogEvent: logEvt };
-          }
-
-          if ((bot.consecutiveBlocks || 0) < 0) {
-             // Increment back to 0 so we eventually move
-             needsUpdate = true;
-             return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: bot.consecutiveBlocks + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
-          }
-
-          needsUpdate = true;
-          return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
         });
 
         return needsUpdate ? nextFleet : prev;
