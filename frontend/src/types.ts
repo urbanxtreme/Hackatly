@@ -7,6 +7,7 @@ export interface ApiRobot {
   current_position_y: number;
   current_task: string;
   battery: number;
+  efficiency: number;
 }
 
 export interface ApiTask {
@@ -17,6 +18,7 @@ export interface ApiTask {
   put_y: number;
   priority: string;
   status: string;
+  bot_id?: number;
   created_at: string;
 }
 

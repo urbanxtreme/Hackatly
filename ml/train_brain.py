@@ -10,14 +10,19 @@ import threading
 from datetime import datetime
 from fastapi import FastAPI, Body
 import uvicorn
+from dotenv import load_dotenv
+
+# Load database configuration from backend/.env
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', 'backend', '.env')
+load_dotenv(dotenv_path)
 
 # Database Configuration
 DB_CONFIG = {
-    'user': 'root',
-    'password': '1548',
-    'host': 'localhost',
-    'database': 'zyndor',
-    'port': 3306
+    'user': os.getenv('MYSQL_USER', 'root'),
+    'password': os.getenv('MYSQL_PASSWORD', '1548'),
+    'host': os.getenv('MYSQL_HOST', 'localhost'),
+    'database': os.getenv('MYSQL_DATABASE', 'zyndor'),
+    'port': int(os.getenv('MYSQL_PORT', 3306))
 }
 
 # Hyperparameters

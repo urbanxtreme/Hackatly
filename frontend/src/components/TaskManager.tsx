@@ -135,7 +135,7 @@ const TaskManager = ({ tasks, onTaskAdded, onTaskDeleted, onSwitchToSimulation }
                 <span className={`priority-indicator ${task.priority}`} />
                 <div className="task-details">
                   <span className="task-route">[{task.get_x},{task.get_y}] → [{task.put_x},{task.put_y}]</span>
-                  <span className="task-robot">{task.task_id} • {task.status}</span>
+                  <span className="task-robot">{task.task_id} • {task.status} {task.bot_id ? `• Robot #${task.bot_id}` : ''}</span>
                 </div>
               </div>
               <div className="task-right">

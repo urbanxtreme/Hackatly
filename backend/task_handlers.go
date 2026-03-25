@@ -125,7 +125,7 @@ func CreateTaskHandler(c *gin.Context) {
 }
 
 func GetTasksHandler(c *gin.Context) {
-	rows, err := DB.Query("SELECT task_id, get_x, get_y, put_x, put_y, priority, status, created_at FROM tasks ORDER BY created_at DESC")
+	rows, err := DB.Query("SELECT task_id, get_x, get_y, put_x, put_y, priority, status, bot_id, created_at FROM tasks ORDER BY created_at DESC")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -135,7 +135,7 @@ func GetTasksHandler(c *gin.Context) {
 	var tasks []Task
 	for rows.Next() {
 		var t Task
-		if err := rows.Scan(&t.TaskID, &t.GetX, &t.GetY, &t.PutX, &t.PutY, &t.Priority, &t.Status, &t.CreatedAt); err != nil {
+		if err := rows.Scan(&t.TaskID, &t.GetX, &t.GetY, &t.PutX, &t.PutY, &t.Priority, &t.Status, &t.BotID, &t.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -251,6 +251,30 @@ func processQueuedTasks() {
 
 	// Process all new tasks directly to in_progress for physical simulation
 	for _, task := range newTasks {
+		// --- SMART ASSIGNMENT: Find best idle robot ---
+		robots, err := GetAllRobots()
+		var bestRobot *Robot
+		if err == nil {
+			for _, r := range robots {
+				if r.State == "idle" {
+					if bestRobot == nil || r.Efficiency > bestRobot.Efficiency {
+						temp := r
+						bestRobot = &temp
+					}
+				}
+			}
+		}
+
+		if bestRobot == nil {
+			log.Printf("[TaskWorker] No idle robots available for task %s, re-queuing\n", task.TaskID)
+			PushTask(task)
+			continue
+		}
+
+		log.Printf("[TaskWorker] Assigning task %s to Robot %d (Efficiency: %.2f)\n", 
+			task.TaskID, bestRobot.ID, bestRobot.Efficiency)
+		// ----------------------------------------------
+
 		pickupPath, err := CooperativeAStar(task.GetX, task.GetY, task.GetX, task.GetY)
 		if err != nil {
 			pickupPath = []PathStep{{X: task.GetX, Y: task.GetY, T: 0}}
@@ -264,7 +288,13 @@ func processQueuedTasks() {
 		}
 
 		Reservations.ReservePath(deliveryPath)
-		DB.Exec("UPDATE tasks SET status = 'in_progress' WHERE task_id = ?", task.TaskID)
+		
+		// Update Task with BotID and status
+		DB.Exec("UPDATE tasks SET status = 'in_progress', bot_id = ? WHERE task_id = ?", bestRobot.ID, task.TaskID)
+		
+		// Update Robot state and current task
+		UpdateRobotState(bestRobot.ID, "active")
+		UpdateRobotTask(bestRobot.ID, task.TaskID)
 
 		log.Printf("[TaskWorker] Task %s: pickup path (%d steps), delivery path (%d steps)\n",
 			task.TaskID, len(pickupPath), len(deliveryPath))

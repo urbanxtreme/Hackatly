@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"log"
+	"math/rand"
 	"net/http"
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +25,19 @@ func BrainPredictHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state data"})
 		return
 	}
+
+	// --- Epsilon-Greedy Exploration ---
+	epsilon := 0.1 // 10% Exploration
+	if rand.Float64() < epsilon {
+		action := rand.Intn(5) // Assuming 5 possible actions
+		log.Printf("[Exploration] Random action chosen: %d\n", action)
+		c.JSON(http.StatusOK, PredictResponse{
+			Action:  action,
+			QValues: []float64{0, 0, 0, 0, 0}, // No Q-values for random action
+		})
+		return
+	}
+	// ----------------------------------
 
 	// Proxy to Python ML Service
 	jsonData, err := json.Marshal(req)

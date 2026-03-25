@@ -257,6 +257,7 @@ const Dashboard = () => {
                           <th>Status</th>
                           <th>Priority</th>
                           <th>Battery</th>
+                          <th>Efficiency</th>
                           <th>Current Task</th>
                           <th>Actions</th>
                         </tr>
@@ -291,6 +292,9 @@ const Dashboard = () => {
                                   </div>
                                   <span className="battery-pct">{robot.battery}%</span>
                                 </div>
+                              </td>
+                              <td style={{ color: robot.efficiency > 0.7 ? '#10b981' : robot.efficiency > 0.4 ? '#fbbf24' : '#f87171', fontWeight: 'bold' }}>
+                                {(robot.efficiency * 100).toFixed(0)}%
                               </td>
                                <td className="task-cell">{robot.current_task}</td>
                               <td className="actions-cell">

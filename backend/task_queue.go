@@ -14,6 +14,7 @@ type Task struct {
 	PutY           int       `json:"put_y"`
 	Priority       string    `json:"priority"`
 	Status         string    `json:"status"`
+	BotID          int64     `json:"bot_id"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
