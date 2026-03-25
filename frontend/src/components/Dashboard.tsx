@@ -261,9 +261,9 @@ const Dashboard = () => {
                 <section className="panel glass">
                   <div className="panel-header">
                     <h2 className="panel-title">Fleet Monitoring</h2>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                       <span className="badge live">● LIVE</span>
-                      <button className="task-add-btn" style={{ fontSize: '0.75rem', padding: '0.4rem 0.8rem' }} onClick={() => setShowAddRobot(!showAddRobot)}>
+                      <button className="task-add-btn" onClick={() => setShowAddRobot(!showAddRobot)}>
                         + Add Robot
                       </button>
                     </div>
@@ -303,16 +303,17 @@ const Dashboard = () => {
                                   {robot.state}
                                 </span>
                               </td>
+                              <td>
                                 <select 
-                                  className={`status-chip ${robot.priority === 'high' ? 'error' : robot.priority === 'medium' ? 'idle' : 'active'}`}
+                                  className={`priority-dropdown ${robot.priority}`}
                                   value={robot.priority}
                                   onChange={(e) => handleUpdatePriority(robot.id, e.target.value)}
-                                  style={{ border: 'none', cursor: 'pointer', outline: 'none', background: 'transparent', width: '100%', textAlign: 'center' }}
                                 >
-                                  <option value="low">low</option>
-                                  <option value="medium">medium</option>
-                                  <option value="high">high</option>
+                                  <option value="low">Low</option>
+                                  <option value="medium">Medium</option>
+                                  <option value="high">High</option>
                                 </select>
+                              </td>
                               <td>
                                 <div className="battery-wrap">
                                   <div className="battery-bar">
