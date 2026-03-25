@@ -4,7 +4,7 @@ import DashboardCanvas from './DashboardCanvas';
 import SimulationView from './SimulationView';
 import TaskManager from './TaskManager';
 import MapManu from './mapmanu';
-import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot, deleteRobot, getMap, updateRobotPriority, uploadRobotsCSV, uploadTasksCSV } from '../api';
+import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot, deleteRobot, getMap, updateRobotPriority, uploadRobotsCSV, uploadTasksCSV, getTaskLogs } from '../api';
 import { STATIC_GRID } from '../utils/grid';
 import './Dashboard.css';
 
@@ -32,6 +32,17 @@ export interface ApiTask {
   created_at: string;
 }
 
+export interface ApiTaskLog {
+  id: number;
+  task_id: string;
+  get_x: number;
+  get_y: number;
+  put_x: number;
+  put_y: number;
+  priority: string;
+  timestamp: string;
+}
+
 interface ApiLog {
   id: number;
   bot_id: number;
@@ -49,6 +60,7 @@ const Dashboard = () => {
   const [robots, setRobots] = useState<ApiRobot[]>([]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [logs, setLogs] = useState<ApiLog[]>([]);
+  const [taskLogs, setTaskLogs] = useState<ApiTaskLog[]>([]);
 
   // Robot form
   const [showAddRobot, setShowAddRobot] = useState(false);
@@ -77,16 +89,18 @@ const Dashboard = () => {
   // Fetch data
   const fetchData = useCallback(async () => {
     try {
-      const [robotData, taskData, logData, mapData] = await Promise.all([
+      const [robotData, taskData, logData, mapData, tLogsData] = await Promise.all([
         getRobots(),
         getTasks(),
         getLogs(),
         getMap(),
+        getTaskLogs()
       ]);
       setRobots(Array.isArray(robotData) ? robotData : []);
       setTasks(Array.isArray(taskData) ? taskData : []);
       setLogs(Array.isArray(logData) ? logData : []);
       if (mapData && mapData.map) setMapGrid(mapData.map);
+      setTaskLogs(Array.isArray(tLogsData) ? tLogsData : []);
     } catch (err) {
       console.error('Failed to fetch data:', err);
     }
@@ -450,6 +464,49 @@ const Dashboard = () => {
                 </div>
               </section>
             </>
+          ) : activeTab === 'tasks' ? (
+            <div className="panel glass" style={{ padding: '2rem', height: '100%' }}>
+              <div className="settings-header" style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+                <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>Task History Logs</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>A complete historical record of all tasks processed by the system.</p>
+              </div>
+
+              <div className="table-scroll" style={{ height: 'calc(100% - 120px)' }}>
+                <table className="fleet-table">
+                  <thead>
+                    <tr>
+                      <th>Task ID</th>
+                      <th>Priority</th>
+                      <th>Pickup (X,Y)</th>
+                      <th>Dropoff (X,Y)</th>
+                      <th>Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {taskLogs.length === 0 ? (
+                      <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No task logs found.</td></tr>
+                    ) : (
+                      taskLogs.map((log) => (
+                        <tr key={log.id}>
+                          <td className="unit-cell" style={{ color: 'var(--accent)' }}>{log.task_id}</td>
+                          <td>
+                            <span className={`status-chip ${log.priority === 'high' ? 'error' : log.priority === 'medium' ? 'idle' : 'active'}`}>
+                              <span className="status-dot"></span>
+                              {log.priority || 'medium'}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace' }}>({log.get_x}, {log.get_y})</td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace' }}>({log.put_x}, {log.put_y})</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                            {new Date(log.timestamp).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           ) : activeTab === 'simulation' ? (
             <SimulationView apiRobots={robots} tasks={tasks} onFetchData={fetchData} apiGrid={mapGrid} />
           ) : activeTab === 'settings' ? (
@@ -489,6 +546,49 @@ const Dashboard = () => {
                     Offline
                   </button>
                 </div>
+              </div>
+            </div>
+          ) : activeTab === 'tasks' ? (
+            <div className="panel glass" style={{ padding: '2rem', height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <div className="settings-header" style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+                <h2 className="panel-title" style={{ fontSize: '1.5rem' }}>Task History Logs</h2>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>A complete historical record of all tasks processed by the system.</p>
+              </div>
+
+              <div className="table-scroll" style={{ flex: 1, minHeight: 0 }}>
+                <table className="fleet-table" style={{ margin: 0 }}>
+                  <thead>
+                    <tr>
+                      <th>Task ID</th>
+                      <th>Priority</th>
+                      <th>Pickup (X,Y)</th>
+                      <th>Dropoff (X,Y)</th>
+                      <th>Timestamp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {taskLogs.length === 0 ? (
+                      <tr><td colSpan={5} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem' }}>No task logs found.</td></tr>
+                    ) : (
+                      taskLogs.map((log) => (
+                        <tr key={log.id}>
+                          <td className="unit-cell" style={{ color: 'var(--accent)' }}>{log.task_id}</td>
+                          <td>
+                            <span className={`status-chip ${log.priority === 'high' ? 'error' : log.priority === 'medium' ? 'idle' : 'active'}`}>
+                              <span className="status-dot"></span>
+                              {log.priority || 'medium'}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace' }}>({log.get_x}, {log.get_y})</td>
+                          <td style={{ fontFamily: 'JetBrains Mono, monospace' }}>({log.put_x}, {log.put_y})</td>
+                          <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                            {new Date(log.timestamp).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           ) : (

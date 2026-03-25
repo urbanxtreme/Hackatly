@@ -144,6 +144,11 @@ export async function deleteTask(taskId: string) {
   return res.json();
 }
 
+export async function getTaskLogs() {
+  const res = await authFetch('/tasks/log');
+  return res.json();
+}
+
 
 
 /* ─── Logs ─── */

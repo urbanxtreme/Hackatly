@@ -323,6 +323,7 @@ func BulkUploadTasksHandler(c *gin.Context) {
 			continue
 		}
 
+		AddTaskLog(task)
 		PushTask(task)
 		created++
 	}
