@@ -261,9 +261,14 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
   const [normalDeadlocks, setNormalDeadlocks] = useState<Set<number>>(new Set());
   const [collisionCells, setCollisionCells] = useState<{x:number,z:number}[]>([]);
   const toggleMode = () => {
-    setSimulationMode(m => m === 'NORMAL' ? 'OPTIMIZED' : 'NORMAL');
+    // ── Full State Reset Before Mode Switch ──
+    // Clear ALL stale state from the previous mode so the new engine
+    // starts completely fresh with no BLOCKED/deadlock residue.
     setNormalDeadlocks(new Set());
     setCollisionCells([]);
+    setHasDeadlock(false);
+    setCompletedTaskIds(new Set()); // Allow tasks to be re-assigned by new engine
+
     setRobots(prev => {
       const nextFleet: RobotState[] = [];
       const traversableCells: {x: number, z: number}[] = [];
@@ -274,23 +279,31 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
       }
 
       prev.forEach((r, i) => {
-        // Find a cell that isn't occupied by someone we already placed
         const available = traversableCells.filter(c => !nextFleet.some(nb => nb.x === c.x && nb.z === c.z));
-        // Pick somewhat distributedly (not just the first one)
         const cell = available[Math.floor((i / prev.length) * available.length)] || {x:1, z:1};
-        
+
         nextFleet.push({
           ...r,
           x: cell.x,
           z: cell.z,
-          path: [], pathIndex: 0, status: 'IDLE' as const, missionPhase: 'IDLE' as const,
-          payloadVisible: false, currentTaskId: undefined,
-          metrics: { queuedTicks: 0, blockedTicks: 0, activeTicks: 0, reroutePenalties: 0 },
+          // Reset ALL movement/conflict state
+          path: [],
+          pathIndex: 0,
+          status: 'IDLE' as const,
+          missionPhase: 'IDLE' as const,
+          payloadVisible: false,
+          currentTaskId: undefined,
           consecutiveBlocks: 0,
+          batteryWarning: false,
+          lastLogEvent: undefined,
+          metrics: { queuedTicks: 0, blockedTicks: 0, activeTicks: 0, reroutePenalties: 0 },
         });
       });
       return nextFleet;
     });
+
+    // Switch the mode AFTER state is cleared
+    setSimulationMode(m => m === 'NORMAL' ? 'OPTIMIZED' : 'NORMAL');
   };
 
   const robotsRef = useRef(robots);
