@@ -260,6 +260,9 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
   const [simulationMode, setSimulationMode] = useState<'NORMAL' | 'OPTIMIZED'>('OPTIMIZED');
   const [normalDeadlocks, setNormalDeadlocks] = useState<Set<number>>(new Set());
   const [collisionCells, setCollisionCells] = useState<{x:number,z:number}[]>([]);
+  // Optimized mode conflict cells: [amber=path-overlap, red=yield/swap resolution]
+  const [optimizedConflictCells, setOptimizedConflictCells] = useState<{x:number,z:number}[]>([]);
+  const [optimizedDeadlocks, setOptimizedDeadlocks] = useState<Set<number>>(new Set());
   const toggleMode = () => {
     // ── Full State Reset Before Mode Switch ──
     // Clear ALL stale state from the previous mode so the new engine
@@ -756,6 +759,22 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
           }
         });
 
+        // ── Emit conflict visualization data ──
+        // Red cells = active yield/swap resolution points this tick
+        const redCells: {x:number,z:number}[] = [];
+        yieldIds.forEach(id => {
+          const bot = prev.find(b => b.id === id);
+          if (bot && bot.pathIndex < bot.path.length) {
+            redCells.push(bot.path[bot.pathIndex]);
+          }
+        });
+        // Badge: bots that are currently BLOCKED in optimized mode
+        const blockedInOptimized = new Set<number>(
+          prev.filter(b => b.status === 'BLOCKED' || yieldIds.has(b.id)).map(b => b.id)
+        );
+        setOptimizedConflictCells(redCells);
+        setOptimizedDeadlocks(blockedInOptimized);
+
         // ══════════════════════════════════════════════════════════════
         // PHASE 4 & 5 — RESOLUTION + MOVEMENT EXECUTION
         // ══════════════════════════════════════════════════════════════
@@ -954,9 +973,21 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
           <ambientLight intensity={0.5} />
           <directionalLight position={[20, 50, 20]} intensity={1} />
           <WarehouseEnvironment grid={currentGrid} />
-          {robots.map(r => <RobotModel key={r.id} robot={r} onSelect={setSelectedRobot} isDeadlocked={normalDeadlocks.has(r.id)} />)}
+          {robots.map(r => (
+            <RobotModel
+              key={r.id}
+              robot={r}
+              onSelect={setSelectedRobot}
+              isDeadlocked={
+                simulationMode === 'NORMAL'
+                  ? normalDeadlocks.has(r.id)
+                  : optimizedDeadlocks.has(r.id)
+              }
+            />
+          ))}
           <PathOverlay robots={robots} mode={simulationMode} />
           {simulationMode === 'NORMAL' && <ConflictZones robots={robots} collisionCells={collisionCells} />}
+          {simulationMode === 'OPTIMIZED' && <ConflictZones robots={robots} collisionCells={optimizedConflictCells} />}
           <OrbitControls target={[CENTER_OFFSET, 0, CENTER_OFFSET]} />
         </Canvas>
 
