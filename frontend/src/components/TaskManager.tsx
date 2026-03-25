@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { createTask, deleteTask } from '../api';
+import { STATIC_GRID } from '../utils/grid';
 import './Dashboard.css';
 
 export interface ApiTask {
@@ -37,25 +38,44 @@ const TaskManager = ({ tasks, onTaskAdded, onTaskDeleted, onSwitchToSimulation }
     onTaskDeleted?.();
   };
 
-  const randCoord = () => Math.floor(Math.random() * 27) + 1;
+  const isTraversable = (x: number, z: number) => {
+    if (x < 0 || x >= 30 || z < 0 || z >= 30) return false;
+    return STATIC_GRID[x][z] === 0;
+  };
+
   const priorities: ('high' | 'medium' | 'low')[] = ['high', 'medium', 'low'];
 
   const handleRandomTasks = async () => {
     setBursting(true);
     const count = 10;
-    const tasks = Array.from({ length: count }, (_, i) => {
-      let px = randCoord(), pz = randCoord();
-      let dx = randCoord(), dz = randCoord();
-      // Ensure pick !== drop
-      while (dx === px && dz === pz) { dx = randCoord(); dz = randCoord(); }
-      return {
+    const tasksToCreate = [];
+
+    const getRandPoint = () => {
+      let x, z;
+      let attempts = 0;
+      do {
+        x = Math.floor(Math.random() * 28) + 1;
+        z = Math.floor(Math.random() * 28) + 1;
+        attempts++;
+      } while (!isTraversable(x, z) && attempts < 100);
+      return [x, z];
+    };
+
+    for (let i = 0; i < count; i++) {
+      const [px, pz] = getRandPoint();
+      let [dx, dz] = getRandPoint();
+      while (dx === px && dz === pz) {
+        [dx, dz] = getRandPoint();
+      }
+      tasksToCreate.push({
         task_id: `T${Date.now()}${i}`,
         get_coordinate: [px, pz] as [number, number],
         put_coordinate: [dx, dz] as [number, number],
         priority: priorities[i % 3],
-      };
-    });
-    await Promise.allSettled(tasks.map(t => createTask(t)));
+      });
+    }
+
+    await Promise.allSettled(tasksToCreate.map(t => createTask(t)));
     setBursting(false);
     onTaskAdded();
   };
@@ -69,11 +89,24 @@ const TaskManager = ({ tasks, onTaskAdded, onTaskDeleted, onSwitchToSimulation }
         alert('Coordinates must be in format: x,y (e.g. 0,0)');
         return;
       }
+      
+      const [fx, fz] = fromParts;
+      const [tx, tz] = toParts;
+
+      if (!isTraversable(fx, fz)) {
+        alert(`Unreachable Coordinate: [${fx}, ${fz}] is inside a storage rack or wall.`);
+        return;
+      }
+      if (!isTraversable(tx, tz)) {
+        alert(`Unreachable Coordinate: [${tx}, ${tz}] is inside a storage rack or wall.`);
+        return;
+      }
+
       const taskId = `T${Date.now()}`;
       await createTask({
         task_id: taskId,
-        get_coordinate: [fromParts[0], fromParts[1]],
-        put_coordinate: [toParts[0], toParts[1]],
+        get_coordinate: [fx, fz],
+        put_coordinate: [tx, tz],
         priority: newPriority,
       });
       setNewFrom('');

@@ -11,11 +11,7 @@ import './SimulationView.css';
 const CENTER_OFFSET = (GRID_SIZE - 1) / 2;
 const TICK_INTERVAL = 250;
 const ROBOT_COLORS = [0xff2222, 0xffaa00, 0x00cc22, 0x00aaff, 0x9900ff, 0x333333];
-const SPAWN_POINTS = [
-  { x: 1, z: 1 }, { x: 28, z: 1 },
-  { x: 1, z: 28 }, { x: 28, z: 28 },
-  { x: 1, z: 14 }, { x: 28, z: 14 }
-];
+
 
 /* ─── A* Pathfinding Logic ─── */
 const heuristic = (a: { x: number; z: number }, b: { x: number; z: number }) =>
@@ -203,12 +199,7 @@ const WarehouseEnvironment = ({ grid = [] }: { grid: number[][] }) => {
         </mesh>
       ))}
 
-      {SPAWN_POINTS.map((p, i) => (
-        <mesh key={i} rotation-x={-Math.PI / 2} position={[p.x, 0.01, p.z]}>
-          <planeGeometry args={[0.9, 0.9]} />
-          <meshBasicMaterial color="#0055ff" transparent opacity={0.4} />
-        </mesh>
-      ))}
+
     </group>
   );
 };
@@ -277,15 +268,33 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
     setSimulationMode(m => m === 'NORMAL' ? 'OPTIMIZED' : 'NORMAL');
     setNormalDeadlocks(new Set());
     setCollisionCells([]);
-    setRobots(prev => prev.map((r, i) => ({
-      ...r,
-      x: SPAWN_POINTS[i % SPAWN_POINTS.length].x,
-      z: SPAWN_POINTS[i % SPAWN_POINTS.length].z,
-      path: [], pathIndex: 0, status: 'IDLE' as const, missionPhase: 'IDLE' as const,
-      payloadVisible: false, currentTaskId: undefined,
-      metrics: { queuedTicks: 0, blockedTicks: 0, activeTicks: 0, reroutePenalties: 0 },
-      consecutiveBlocks: 0,
-    })));
+    setRobots(prev => {
+      const nextFleet: RobotState[] = [];
+      const traversableCells: {x: number, z: number}[] = [];
+      for(let x=0; x<GRID_SIZE; x++) {
+        for(let z=0; z<GRID_SIZE; z++) {
+          if(currentGrid[x][z] === 0) traversableCells.push({x, z});
+        }
+      }
+
+      prev.forEach((r, i) => {
+        // Find a cell that isn't occupied by someone we already placed
+        const available = traversableCells.filter(c => !nextFleet.some(nb => nb.x === c.x && nb.z === c.z));
+        // Pick somewhat distributedly (not just the first one)
+        const cell = available[Math.floor((i / prev.length) * available.length)] || {x:1, z:1};
+        
+        nextFleet.push({
+          ...r,
+          x: cell.x,
+          z: cell.z,
+          path: [], pathIndex: 0, status: 'IDLE' as const, missionPhase: 'IDLE' as const,
+          payloadVisible: false, currentTaskId: undefined,
+          metrics: { queuedTicks: 0, blockedTicks: 0, activeTicks: 0, reroutePenalties: 0 },
+          consecutiveBlocks: 0,
+        });
+      });
+      return nextFleet;
+    });
   };
 
   const robotsRef = useRef(robots);
@@ -302,15 +311,19 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
       activeApiRobots.forEach((apiBot, index) => {
         const existing = prev.find(r => r.id === apiBot.id);
         if (!existing) {
-          // ── SMART PLACEMENT: Search for first available floor tile ──
+          // ── SMART PLACEMENT: Search for first available floor tile (distributed) ──
           let startPos = { x: 1, z: 1 };
           let found = false;
-          for (let x = 1; x < GRID_SIZE - 1 && !found; x++) {
-            for (let z = 1; z < GRID_SIZE - 1 && !found; z++) {
-              if (currentGrid[x][z] === 0 && !newFleet.some(r => r.x === x && r.z === z)) {
-                startPos = { x, z };
-                found = true;
-              }
+          
+          // Try to find a cell that matches the hash of the robot name/id for stable distribution
+          const offset = (apiBot.id * 17) % 50; 
+          for (let i = 0; i < GRID_SIZE * GRID_SIZE && !found; i++) {
+            const idx = (i + offset) % (GRID_SIZE * GRID_SIZE);
+            const x = Math.floor(idx / GRID_SIZE);
+            const z = idx % GRID_SIZE;
+            if (currentGrid[x][z] === 0 && !newFleet.some(r => r.x === x && r.z === z)) {
+              startPos = { x, z };
+              found = true;
             }
           }
 
@@ -367,6 +380,8 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
             ...r,
             status: 'DONE',
             missionPhase: 'IDLE',
+            path: [],
+            pathIndex: 0,
             payloadVisible: false,
             currentTaskId: undefined,
             consecutiveBlocks: 0
@@ -391,7 +406,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
   /* ─── Backend Integration & Live Task Assignment ─── */
   useEffect(() => {
     // 1. Detect deadlock or failure states
-    const isDeadlocked = tasks.some(t => t.status === 'waiting');
+    const isDeadlocked = tasks.some(t => t.status === 'waiting') || robots.some(r => r.consecutiveBlocks > 20);
     setHasDeadlock(isDeadlocked);
 
     // 2. Reconcile: if backend has marked a task as 'failed' or 'completed',
@@ -456,6 +471,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
 
           const testPath = astar({ x: bot.x, z: bot.z }, { x: px, z: pz }, [], currentGrid);
           if (testPath.length > 0) {
+            console.log(`[Task Assignment] Assigning Task ${backendTask.task_id} to Bot #${bot.id}`);
             updateRobotState(bot.id, 'active');
             updateRobotTask(bot.id, backendTask.task_id);
             updatedList[idleBotIndex] = {
@@ -470,12 +486,14 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
               lastLogEvent: { msg: `Assigned task ${backendTask.task_id}: Moving from [${bot.x}, ${bot.z}] to pick at [${px}, ${pz}]`, id: Date.now() + Math.random() }
             };
             hasChanges = true;
+          } else {
+            console.warn(`[Task Assignment] FAILED: Task ${backendTask.task_id} unreachable at [${px}, ${pz}]. Check for obstacles.`);
           }
         }
       }
       return hasChanges ? updatedList : prev;
     });
-  }, [tasks, completedTaskIds, currentGrid]);
+  }, [tasks, completedTaskIds, currentGrid, robots]);
 
   /* ─── Queue Delay Tracking (While API Resolves Deadlocks) ─── */
   useEffect(() => {
@@ -801,19 +819,24 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
               mlAction = 0;   // Forced wait
               const blocks = (bot.consecutiveBlocks || 0) + 1;
               
-              // ── LB-7: Anti-Dance Symmetry Breaker & Central Server Hook ──
+              // ── LB-7: Anti-Dance Symmetry Breaker & Head-on Detection ──
               // Stagger the reroute timer based on Robot ID so two bots never sidestep 
-              // symmetrically. The lower ID dodges immediately, the higher ID stands still.
+              // symmetrically. The lower ID dodges after 2 ticks, the higher ID waits 10 ticks.
               const blocker = prev.find(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
-              let rerouteThreshold = (blocker && bot.id < blocker.id) ? 1 : 2;
+
+              let rerouteThreshold = 2; // Default
+              if (blocker) {
+                // Symmetry Breaker: Higher ID waits 2x longer to ensure lower ID resolves first
+                rerouteThreshold = (bot.id > blocker.id) ? 5 : 2; 
+              }
               
               // Central Server Hook: If the backend detects a global cycle graph, 
-              // compress the reroute threshold and add entropy to shatter the loop.
+              // add entropy to shatter the loop.
               if (hasDeadlock) {
-                rerouteThreshold = Math.max(0, rerouteThreshold - Math.floor(Math.random() * 2));
+                rerouteThreshold = Math.max(1, rerouteThreshold - Math.floor(Math.random() * 3));
               }
 
-              if (blocks > rerouteThreshold) {
+              if (blocks >= rerouteThreshold) {
                 // Reroute using Soft Obstacles (high cost to push it to empty adjacent lanes)
                 const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
                 const target = bot.path[bot.path.length - 1];
@@ -824,6 +847,18 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
                   logEvt = { msg: `[Local Brain] Rerouting around blockage at [${nextStep.x},${nextStep.z}]`, id: Date.now() + Math.random() };
                   fireTuple(mlAction, mlReward, m);
                   return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
+                } else if (blocks > 40) {
+                  // ── LB-8: SHATTER LOGIC (Last Resort) ──
+                  // If stuck for too long and standard reroute fails, move to ANY adjacent free cell
+                  const neighbors = [{dx:1,dz:0},{dx:-1,dz:0},{dx:0,dz:1},{dx:0,dz:-1}];
+                  for (const o of neighbors) {
+                    const nx = bot.x + o.dx, nz = bot.z + o.dz;
+                    if (nx >= 0 && nx < GRID_SIZE && nz >= 0 && nz < GRID_SIZE && currentGrid[nx][nz] === 0 && !prev.some(r => r.x === nx && r.z === nz)) {
+                      needsUpdate = true;
+                      logEvt = { msg: `[Local Brain] Shattering jam — forcing evasion to [${nx},${nz}]`, id: Date.now() + Math.random() };
+                      return { ...bot, x: nx, z: nz, path: [], pathIndex: 0, consecutiveBlocks: 0, lastLogEvent: logEvt };
+                    }
+                  }
                 }
               }
               if (bot.status !== 'BLOCKED') needsUpdate = true;
