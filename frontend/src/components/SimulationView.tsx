@@ -103,7 +103,7 @@ interface SimulationViewProps {
 }
 
 /* ─── 3D Components ─── */
-const RobotModel = ({ robot, onSelect }: { robot: RobotState; onSelect: (r: RobotState) => void }) => {
+const RobotModel = ({ robot, onSelect, isDeadlocked = false }: { robot: RobotState; onSelect: (r: RobotState) => void; isDeadlocked?: boolean }) => {
   const meshRef = useRef<THREE.Group>(null!);
 
   useFrame(() => {
@@ -128,13 +128,13 @@ const RobotModel = ({ robot, onSelect }: { robot: RobotState; onSelect: (r: Robo
         </mesh>
       )}
       <Html position={[0, 1.5, 0]} center style={{ pointerEvents: 'none' }}>
-        <div style={{
-          backgroundColor: 'rgba(0,0,0,0.85)', padding: '2px 6px', borderRadius: '4px',
-          color: '#0f0', fontSize: '12px', fontWeight: 'bold', border: '1px solid rgba(0,255,0,0.5)',
-          whiteSpace: 'nowrap', textShadow: '0 0 5px #0f0', fontFamily: 'monospace'
-        }}>
-          Eff: {Math.max(0, Math.min(100, Math.round(100 - (robot.metrics.blockedTicks * 0.5) - ((robot.metrics.reroutePenalties || 0) * 2))))}%
-        </div>
+        {isDeadlocked ? (
+          <div style={{ backgroundColor: 'rgba(160,0,0,0.95)', padding: '3px 8px', borderRadius: '4px', color: '#fff', fontSize: '11px', fontWeight: 'bold', border: '2px solid #ff2222', whiteSpace: 'nowrap', fontFamily: 'monospace', letterSpacing: '1px' }}>⛔ DEADLOCK</div>
+        ) : (
+          <div style={{ backgroundColor: 'rgba(0,0,0,0.85)', padding: '2px 6px', borderRadius: '4px', color: '#0f0', fontSize: '12px', fontWeight: 'bold', border: '1px solid rgba(0,255,0,0.5)', whiteSpace: 'nowrap', textShadow: '0 0 5px #0f0', fontFamily: 'monospace' }}>
+            Eff: {Math.max(0, Math.min(100, Math.round(100 - (robot.metrics.blockedTicks * 0.5) - ((robot.metrics.reroutePenalties || 0) * 2))))}%
+          </div>
+        )}
       </Html>
     </group>
   );
@@ -208,6 +208,42 @@ const WarehouseEnvironment = ({ grid = [] }: { grid: number[][] }) => {
   );
 };
 
+/* ─── Path Visualization & Conflict Zone Components ─── */
+const PathOverlay = ({ robots, mode }: { robots: RobotState[]; mode: 'NORMAL' | 'OPTIMIZED' }) => (
+  <>
+    {robots.filter(r => r.path.slice(r.pathIndex).length >= 2).map(robot => {
+      const pts = robot.path.slice(robot.pathIndex).map(p => new THREE.Vector3(p.x, 0.08, p.z));
+      return <Line key={robot.id} points={pts} color={mode === 'NORMAL' ? robot.color : '#00ff88'} lineWidth={mode === 'NORMAL' ? 2.5 : 1.5} opacity={0.75} transparent />;
+    })}
+  </>
+);
+
+const ConflictZones = ({ robots, collisionCells }: { robots: RobotState[]; collisionCells: {x:number,z:number}[] }) => {
+  const zones = useMemo(() => {
+    const cnt = new Map<string, number>();
+    robots.forEach(r => r.path.slice(r.pathIndex).forEach(p => { const k=`${p.x},${p.z}`; cnt.set(k,(cnt.get(k)||0)+1); }));
+    const out: {x:number,z:number}[] = [];
+    cnt.forEach((n,k) => { if(n>1){const[x,z]=k.split(',').map(Number);out.push({x,z});} });
+    return out;
+  }, [robots]);
+  return (
+    <>
+      {zones.map((p,i) => (
+        <mesh key={`cz${i}`} rotation-x={-Math.PI/2} position={[p.x,0.02,p.z]}>
+          <planeGeometry args={[0.95,0.95]} />
+          <meshBasicMaterial color="#ff7700" transparent opacity={0.5} />
+        </mesh>
+      ))}
+      {collisionCells.map((p,i) => (
+        <mesh key={`cc${i}`} rotation-x={-Math.PI/2} position={[p.x,0.03,p.z]}>
+          <planeGeometry args={[0.95,0.95]} />
+          <meshBasicMaterial color="#ff0000" transparent opacity={0.75} />
+        </mesh>
+      ))}
+    </>
+  );
+};
+
 /* ─── Main Simulation Component ─── */
 const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: SimulationViewProps) => {
   const [robots, setRobots] = useState<RobotState[]>([]);
@@ -220,6 +256,24 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
   const physicalDeadlockTimeRef = useRef<number | null>(null);
   useEffect(() => { physicalDeadlockTimeRef.current = physicalDeadlockTime; }, [physicalDeadlockTime]);
   
+  const [simulationMode, setSimulationMode] = useState<'NORMAL' | 'OPTIMIZED'>('OPTIMIZED');
+  const [normalDeadlocks, setNormalDeadlocks] = useState<Set<number>>(new Set());
+  const [collisionCells, setCollisionCells] = useState<{x:number,z:number}[]>([]);
+  const toggleMode = () => {
+    setSimulationMode(m => m === 'NORMAL' ? 'OPTIMIZED' : 'NORMAL');
+    setNormalDeadlocks(new Set());
+    setCollisionCells([]);
+    setRobots(prev => prev.map((r, i) => ({
+      ...r,
+      x: SPAWN_POINTS[i % SPAWN_POINTS.length].x,
+      z: SPAWN_POINTS[i % SPAWN_POINTS.length].z,
+      path: [], pathIndex: 0, status: 'IDLE' as const, missionPhase: 'IDLE' as const,
+      payloadVisible: false, currentTaskId: undefined,
+      metrics: { queuedTicks: 0, blockedTicks: 0, activeTicks: 0, reroutePenalties: 0 },
+      consecutiveBlocks: 0,
+    })));
+  };
+
   const robotsRef = useRef(robots);
   useEffect(() => { robotsRef.current = robots; }, [robots]);
 
@@ -405,7 +459,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
   /* ─── Queue Delay Tracking (While API Resolves Deadlocks) ─── */
   useEffect(() => {
-    if (!hasDeadlock) return;
+    if (!hasDeadlock || simulationMode !== 'OPTIMIZED') return;
     const timer = setInterval(() => {
       setRobots(prev => prev.map(bot => ({
         ...bot,
@@ -413,11 +467,84 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
       })));
     }, TICK_INTERVAL);
     return () => clearInterval(timer);
-  }, [hasDeadlock]);
+  }, [hasDeadlock, simulationMode]);
 
-  /* ─── Simulation Tick Engine ─── */
+  /* ─── Normal Mode Tick Engine (Naive A* — Industry Standard, No Coordination) ─── */
   useEffect(() => {
-    if (hasDeadlock) return;
+    if (simulationMode !== 'NORMAL') return;
+    const timer = setInterval(() => {
+      setRobots(prev => {
+        // Phase transitions (same as optimized but no conflict checks)
+        const afterPhase = prev.map(bot => {
+          if ((bot.status !== 'MOVING' && bot.status !== 'BLOCKED') || bot.pathIndex < bot.path.length) return bot;
+          const m = { ...bot.metrics };
+          if (bot.missionPhase === 'TO_PICK') {
+            const np = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], grid);
+            return { ...bot, path: np, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m };
+          } else if (bot.missionPhase === 'TO_DROP') {
+            return { ...bot, missionPhase: 'FINISHING' as const, status: 'IDLE' as const, payloadVisible: false, metrics: m };
+          }
+          return bot;
+        });
+
+        // Build intended next moves (naive — no obstacle awareness)
+        const moves = new Map<number, {x:number,z:number}>();
+        afterPhase.forEach(bot => {
+          if ((bot.status === 'MOVING' || bot.status === 'BLOCKED') && bot.pathIndex < bot.path.length)
+            moves.set(bot.id, bot.path[bot.pathIndex]);
+        });
+
+        // Detect swap deadlocks (head-to-head: A→B's cell, B→A's cell)
+        const frozenIds = new Set<number>();
+        moves.forEach((posA, idA) => {
+          const botA = afterPhase.find(b => b.id === idA)!;
+          moves.forEach((posB, idB) => {
+            if (idA >= idB) return;
+            const botB = afterPhase.find(b => b.id === idB)!;
+            if (posA.x === botB.x && posA.z === botB.z && posB.x === botA.x && posB.z === botA.z) {
+              frozenIds.add(idA); frozenIds.add(idB);
+            }
+          });
+        });
+
+        // Detect same-cell collisions (two bots targeting same cell)
+        const cellTargets = new Map<string, number[]>();
+        moves.forEach((pos, id) => {
+          if (frozenIds.has(id)) return;
+          const k = `${pos.x},${pos.z}`;
+          if (!cellTargets.has(k)) cellTargets.set(k, []);
+          cellTargets.get(k)!.push(id);
+        });
+        const colCells: {x:number,z:number}[] = [];
+        cellTargets.forEach((ids, k) => {
+          if (ids.length > 1) { const [x,z]=k.split(',').map(Number); colCells.push({x,z}); }
+        });
+
+        const newDeadlocks = new Set<number>(frozenIds);
+        setNormalDeadlocks(newDeadlocks);
+        setCollisionCells(colCells);
+
+        // Apply moves naively — no rerouting, robots just freeze on deadlock
+        return afterPhase.map(bot => {
+          if (bot.status !== 'MOVING' && bot.status !== 'BLOCKED') return bot;
+          const m = { ...bot.metrics, activeTicks: bot.metrics.activeTicks + 1 };
+          if (frozenIds.has(bot.id)) {
+            return { ...bot, status: 'BLOCKED' as const, metrics: { ...m, blockedTicks: m.blockedTicks + 1 } };
+          }
+          if (bot.pathIndex < bot.path.length) {
+            const ns = bot.path[bot.pathIndex];
+            return { ...bot, x: ns.x, z: ns.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0 };
+          }
+          return bot;
+        });
+      });
+    }, TICK_INTERVAL);
+    return () => clearInterval(timer);
+  }, [simulationMode, grid]);
+
+  /* ─── Optimized Simulation Tick Engine (RoboFlow Middleware Active) ─── */
+  useEffect(() => {
+    if (hasDeadlock || simulationMode !== 'OPTIMIZED') return;
 
     const timer = setInterval(() => {
       // Manage 10-second Physical Deadlock Freeze
@@ -629,7 +756,9 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           <ambientLight intensity={0.5} />
           <directionalLight position={[20, 50, 20]} intensity={1} />
           <WarehouseEnvironment grid={grid} />
-          {robots.map(r => <RobotModel key={r.id} robot={r} onSelect={setSelectedRobot} />)}
+          {robots.map(r => <RobotModel key={r.id} robot={r} onSelect={setSelectedRobot} isDeadlocked={normalDeadlocks.has(r.id)} />)}
+          <PathOverlay robots={robots} mode={simulationMode} />
+          {simulationMode === 'NORMAL' && <ConflictZones robots={robots} collisionCells={collisionCells} />}
           <OrbitControls target={[CENTER_OFFSET, 0, CENTER_OFFSET]} />
         </Canvas>
 
@@ -684,7 +813,27 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
         )}
       </div>
 
-      <aside className={`sim-terminal ${hasDeadlock ? 'blurred' : ''}`}>
+      <aside className={`sim-terminal ${hasDeadlock && simulationMode === 'OPTIMIZED' ? 'blurred' : ''}`}>
+        {/* ─── Mode Toggle ─── */}
+        <div className="panel glass mode-toggle-panel">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+            <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-muted)' }}>Simulation Mode</span>
+          </div>
+          <button onClick={toggleMode} className={`mode-toggle-btn ${simulationMode === 'NORMAL' ? 'mode-normal' : 'mode-optimized'}`}>
+            <span className="mode-indicator" />
+            {simulationMode === 'NORMAL' ? '🔴 NAIVE MODE — A* Only (No Coordination)' : '🟢 OPTIMIZED — RoboFlow Middleware Active'}
+          </button>
+          {simulationMode === 'NORMAL' && (
+            <div style={{ marginTop: '8px', fontSize: '0.72rem', color: '#ff8844', lineHeight: 1.5 }}>
+              <b>⚠ Collision risks visible.</b> Amber = path conflict zone. Red = collision. Robots freeze on deadlock — no resolution.
+            </div>
+          )}
+          {simulationMode === 'OPTIMIZED' && (
+            <div style={{ marginTop: '8px', fontSize: '0.72rem', color: '#00cc88', lineHeight: 1.5 }}>
+              <b>✓ Middleware active.</b> Reservation table + DFS cycle detection + priority scheduling prevents conflicts.
+            </div>
+          )}
+        </div>
         <div className="panel glass" style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '15px', padding: '15px' }}>
           <div className="sim-panel-title" style={{ fontSize: '1rem' }}>Global <span>Efficiency</span></div>
           <div style={{ textAlign: 'center', margin: '5px 0' }}>

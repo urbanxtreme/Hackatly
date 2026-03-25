@@ -25,6 +25,40 @@ const TaskManager = ({ tasks, onTaskAdded, onTaskDeleted, onSwitchToSimulation }
   const [newFrom, setNewFrom] = useState('');
   const [newTo, setNewTo] = useState('');
   const [newPriority, setNewPriority] = useState<'high' | 'medium' | 'low'>('medium');
+  const [bursting, setBursting] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  const handleClearAll = async () => {
+    if (tasks.length === 0) return;
+    if (!confirm(`Delete all ${tasks.length} task(s)?`)) return;
+    setClearing(true);
+    await Promise.allSettled(tasks.map(t => deleteTask(t.task_id)));
+    setClearing(false);
+    onTaskDeleted?.();
+  };
+
+  const randCoord = () => Math.floor(Math.random() * 27) + 1;
+  const priorities: ('high' | 'medium' | 'low')[] = ['high', 'medium', 'low'];
+
+  const handleRandomTasks = async () => {
+    setBursting(true);
+    const count = 10;
+    const tasks = Array.from({ length: count }, (_, i) => {
+      let px = randCoord(), pz = randCoord();
+      let dx = randCoord(), dz = randCoord();
+      // Ensure pick !== drop
+      while (dx === px && dz === pz) { dx = randCoord(); dz = randCoord(); }
+      return {
+        task_id: `T${Date.now()}${i}`,
+        get_coordinate: [px, pz] as [number, number],
+        put_coordinate: [dx, dz] as [number, number],
+        priority: priorities[i % 3],
+      };
+    });
+    await Promise.allSettled(tasks.map(t => createTask(t)));
+    setBursting(false);
+    onTaskAdded();
+  };
 
   const handleAddTask = async () => {
     if (!newFrom.trim() || !newTo.trim()) return;
@@ -58,7 +92,20 @@ const TaskManager = ({ tasks, onTaskAdded, onTaskDeleted, onSwitchToSimulation }
     <section className="panel glass">
       <div className="panel-header">
         <h2 className="panel-title">Task Manager</h2>
-        <span className="badge count">{tasks.length} tasks</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <span className="badge count">{tasks.length} tasks</span>
+          {tasks.length > 0 && (
+            <button
+              className="task-add-btn random-burst-btn"
+              onClick={handleClearAll}
+              disabled={clearing}
+              title="Delete all tasks"
+              style={{ background: 'rgba(180,30,30,0.8)', padding: '3px 10px', fontSize: '0.72rem' }}
+            >
+              {clearing ? '...' : '🗑 Clear All'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="task-form">
@@ -74,6 +121,14 @@ const TaskManager = ({ tasks, onTaskAdded, onTaskDeleted, onSwitchToSimulation }
             <option value="low">🟢 Low</option>
           </select>
           <button className="task-add-btn" onClick={handleAddTask}>+ Deploy</button>
+          <button
+            className="task-add-btn random-burst-btn"
+            onClick={handleRandomTasks}
+            disabled={bursting}
+            title="Deploy 3 random tasks across the grid"
+          >
+            {bursting ? '...' : '⚡ Random'}
+          </button>
         </div>
       </div>
 
