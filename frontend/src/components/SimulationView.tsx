@@ -4,7 +4,7 @@ import { OrbitControls, Grid, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
 import TaskManager, { type ApiTask } from './TaskManager';
-import { completeTask, updateRobotPosition, addLog, addEfficiency, getMap } from '../api';
+import { completeTask, updateRobotPosition, addLog, addEfficiency, getMap, updateRobotState, updateRobotTask } from '../api';
 import './SimulationView.css';
 
 /* ─── Simulation Configuration ─── */
@@ -284,6 +284,8 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
         Promise.allSettled([
           completeTask(tid),
           updateRobotPosition(bot.id, bot.x, bot.z),
+          updateRobotState(bot.id, 'idle'),
+          updateRobotTask(bot.id, 'none'),
           addLog(bot.id, `Completed task ${tid} at [${bot.x}, ${bot.z}] with ${finalEfficiency}% efficiency.`),
           addEfficiency(bot.id, finalEfficiency)
         ]).then(() => {
@@ -380,6 +382,8 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
           const testPath = astar({ x: bot.x, z: bot.z }, { x: px, z: pz }, [], grid);
           if (testPath.length > 0) {
+            updateRobotState(bot.id, 'active');
+            updateRobotTask(bot.id, backendTask.task_id);
             updatedList[idleBotIndex] = {
               ...bot,
               currentTaskId: backendTask.task_id,
