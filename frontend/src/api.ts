@@ -219,7 +219,16 @@ export async function uploadRobotsCSV(file: File) {
   });
 
   if (res.status === 401) { clearToken(); window.location.href = '/login'; throw new Error('Unauthorized'); }
-  return res.json();
+
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text);
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    return data;
+  } catch (e: any) {
+    if (e.message && !e.message.includes('JSON')) throw e;
+    throw new Error('Server error: ' + text.substring(0, 200));
+  }
 }
 
 export async function uploadTasksCSV(file: File) {
@@ -234,6 +243,15 @@ export async function uploadTasksCSV(file: File) {
   });
 
   if (res.status === 401) { clearToken(); window.location.href = '/login'; throw new Error('Unauthorized'); }
-  return res.json();
+
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text);
+    if (!res.ok) throw new Error(data.error || 'Upload failed');
+    return data;
+  } catch (e: any) {
+    if (e.message && !e.message.includes('JSON')) throw e;
+    throw new Error('Server error: ' + text.substring(0, 200));
+  }
 }
 
