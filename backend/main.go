@@ -79,6 +79,10 @@ r.Use(func(c *gin.Context) {
 		protected.DELETE("/robots/:id", DeleteRobotHandler)
 		protected.PATCH("/tasks/:id/complete", CompleteTaskHandler)
 
+		// CSV Bulk Upload
+		protected.POST("/robots/upload", BulkUploadRobotsHandler)
+		protected.POST("/tasks/upload", BulkUploadTasksHandler)
+
 
 
 	}

@@ -822,3 +822,17 @@
   margin-left: 0.5rem;
 }
 
+/* ─── CSV Upload Button ─── */
+.csv-upload-btn {
+  background: rgba(99, 102, 241, 0.85) !important;
+  color: #fff !important;
+  font-size: 0.75rem !important;
+  padding: 0.45rem 0.9rem !important;
+}
+
+.csv-upload-btn:hover {
+  background: rgba(99, 102, 241, 1) !important;
+  box-shadow: 0 0 12px rgba(99, 102, 241, 0.4);
+}
+
+

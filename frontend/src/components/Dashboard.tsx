@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardCanvas from './DashboardCanvas';
 import SimulationView from './SimulationView';
 import TaskManager from './TaskManager';
 import MapManu from './mapmanu';
-import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot, deleteRobot, getMap, updateRobotPriority } from '../api';
+import { getToken, clearToken, getRobots, getTasks, getLogs, addRobot, deleteRobot, getMap, updateRobotPriority, uploadRobotsCSV, uploadTasksCSV } from '../api';
 import { STATIC_GRID } from '../utils/grid';
 import './Dashboard.css';
 
@@ -56,6 +56,10 @@ const Dashboard = () => {
 
   // Map Editor
   const [showMapEditor, setShowMapEditor] = useState(false);
+
+  // CSV Upload refs
+  const robotFileRef = useRef<HTMLInputElement>(null);
+  const taskFileRef = useRef<HTMLInputElement>(null);
   const [mapGrid, setMapGrid] = useState<number[][]>(STATIC_GRID);
 
   // Auth guard
@@ -140,10 +144,37 @@ const Dashboard = () => {
   const handleUpdatePriority = async (id: number, priority: string) => {
     try {
       await updateRobotPriority(id, priority);
-      fetchData(); // Refresh list to show updated priority
+      fetchData();
     } catch (err: any) {
       alert(err.message || 'Failed to update priority');
     }
+  };
+
+  // CSV Upload handlers
+  const handleRobotCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const result = await uploadRobotsCSV(file);
+      alert(`✅ ${result.created} robot(s) created out of ${result.total}.${result.errors?.length ? '\n⚠️ Errors:\n' + result.errors.join('\n') : ''}`);
+      fetchData();
+    } catch (err: any) {
+      alert('Upload failed: ' + (err.message || 'Unknown error'));
+    }
+    if (robotFileRef.current) robotFileRef.current.value = '';
+  };
+
+  const handleTaskCSVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const result = await uploadTasksCSV(file);
+      alert(`✅ ${result.created} task(s) created out of ${result.total}.${result.errors?.length ? '\n⚠️ Errors:\n' + result.errors.join('\n') : ''}`);
+      fetchData();
+    } catch (err: any) {
+      alert('Upload failed: ' + (err.message || 'Unknown error'));
+    }
+    if (taskFileRef.current) taskFileRef.current.value = '';
   };
 
   const batteryColor = (pct: number) => {
@@ -261,10 +292,14 @@ const Dashboard = () => {
                 <section className="panel glass">
                   <div className="panel-header">
                     <h2 className="panel-title">Fleet Monitoring</h2>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                       <span className="badge live">● LIVE</span>
                       <button className="task-add-btn" onClick={() => setShowAddRobot(!showAddRobot)}>
                         + Add Robot
+                      </button>
+                      <input type="file" accept=".csv" ref={robotFileRef} onChange={handleRobotCSVUpload} style={{ display: 'none' }} />
+                      <button className="task-add-btn csv-upload-btn" onClick={() => robotFileRef.current?.click()}>
+                        📤 Upload CSV
                       </button>
                     </div>
                   </div>
@@ -340,13 +375,22 @@ const Dashboard = () => {
                   </div>
                 </section>
 
-                {/* Task Manager Panel */}
-                <TaskManager 
-                  tasks={tasks} 
-                  onTaskAdded={fetchData} 
-                  onTaskDeleted={fetchData}
-                  onSwitchToSimulation={() => setActiveTab('simulation')} 
-                />
+                {/* Task Manager Panel + CSV Upload */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+                  <div className="panel glass" style={{ padding: '0.75rem 1.5rem', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Bulk import tasks from CSV</span>
+                    <input type="file" accept=".csv" ref={taskFileRef} onChange={handleTaskCSVUpload} style={{ display: 'none' }} />
+                    <button className="task-add-btn csv-upload-btn" onClick={() => taskFileRef.current?.click()}>
+                      📤 Upload Tasks CSV
+                    </button>
+                  </div>
+                  <TaskManager 
+                    tasks={tasks} 
+                    onTaskAdded={fetchData} 
+                    onTaskDeleted={fetchData}
+                    onSwitchToSimulation={() => setActiveTab('simulation')} 
+                  />
+                </div>
               </div>
 
               {/* ─── Activity Feed ─── */}

@@ -205,3 +205,35 @@ export async function updateMap(obstacles: number[][]) {
   });
   return res.json();
 }
+
+/* ─── CSV Bulk Upload ─── */
+export async function uploadRobotsCSV(file: File) {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${BASE_URL}/robots/upload`, {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    body: formData,
+  });
+
+  if (res.status === 401) { clearToken(); window.location.href = '/login'; throw new Error('Unauthorized'); }
+  return res.json();
+}
+
+export async function uploadTasksCSV(file: File) {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${BASE_URL}/tasks/upload`, {
+    method: 'POST',
+    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+    body: formData,
+  });
+
+  if (res.status === 401) { clearToken(); window.location.href = '/login'; throw new Error('Unauthorized'); }
+  return res.json();
+}
+
