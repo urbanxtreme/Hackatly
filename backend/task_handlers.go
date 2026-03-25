@@ -32,6 +32,45 @@ func InitMapHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "map initialized"})
 }
 
+func UpdateMapHandler(c *gin.Context) {
+	var req struct {
+		Obstacles [][]int `json:"obstacles" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	userIDStr, exists := c.Get("userID")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
+	}
+
+	id, err := strconv.ParseInt(userIDStr.(string), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse userID"})
+		return
+	}
+
+	// 1. Save to DB (sparse)
+	if err := SaveUserObstacles(id, req.Obstacles); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 2. Re-load full matrix to update memory (A* needs it)
+	matrix, err := LoadUserMap(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	InitMap(matrix)
+	InitReservations()
+
+	c.JSON(http.StatusOK, gin.H{"status": "map updated", "obstacles_count": len(req.Obstacles)})
+}
+
 func GetMapHandler(c *gin.Context) {
 	grid := GetMap()
 	if grid == nil {

@@ -452,6 +452,35 @@ func SaveUserMap(userID int64, matrix [][]int) error {
 	return tx.Commit()
 }
 
+func SaveUserObstacles(userID int64, obstacles [][]int) error {
+	tx, err := DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// 1. Delete old obstacles (but keep metadata - dimensions stay the same)
+	_, _ = tx.Exec("DELETE FROM map_obstacles WHERE user_id = ?", userID)
+
+	// 2. Insert new obstacles
+	stmt, err := tx.Prepare("INSERT INTO map_obstacles (user_id, x, y) VALUES (?, ?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	for _, p := range obstacles {
+		if len(p) == 2 {
+			_, err = stmt.Exec(userID, p[0], p[1])
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return tx.Commit()
+}
+
 func LoadUserMap(userID int64) ([][]int, error) {
 	var rows, cols int
 	err := DB.QueryRow("SELECT rows, cols FROM map_metadata WHERE user_id = ?", userID).Scan(&rows, &cols)
