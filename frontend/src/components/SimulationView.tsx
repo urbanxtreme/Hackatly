@@ -773,13 +773,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
             return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: (bot.consecutiveBlocks || 0) + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
           }
 
-          // Courtesy Wait & Recovery Logic
-          if ((bot.consecutiveBlocks || 0) < 0) {
-             needsUpdate = true;
-             m.blockedTicks += 1;
-             fireTuple(0, -1, m); 
-             return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: bot.consecutiveBlocks + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
-          }
+
 
           if (bot.pathIndex < bot.path.length) {
             const nextStep = bot.path[bot.pathIndex];
@@ -800,7 +794,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
               // Stagger the reroute timer based on Robot ID so two bots never sidestep 
               // symmetrically. The lower ID dodges immediately, the higher ID stands still.
               const blocker = prev.find(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
-              let rerouteThreshold = (blocker && bot.id < blocker.id) ? 1 : 4;
+              let rerouteThreshold = (blocker && bot.id < blocker.id) ? 1 : 2;
               
               // Central Server Hook: If the backend detects a global cycle graph, 
               // compress the reroute threshold and add entropy to shatter the loop.
@@ -829,10 +823,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
               needsUpdate = true;
               fireTuple(mlAction, mlReward, m);
 
-              // If we were just blocked, trigger Courtesy Wait (2 Ticks) to let others clear out
-              if ((bot.consecutiveBlocks || 0) > 0) {
-                return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: -2, batteryWarning: bWarn, lastLogEvent: logEvt };
-              }
+
 
               return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
             }
