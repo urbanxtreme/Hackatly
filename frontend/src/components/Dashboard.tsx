@@ -419,7 +419,7 @@ const Dashboard = () => {
                 </section>
 
                 {/* Task Manager Panel + CSV Upload */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0', minHeight: 0, height: '100%' }}>
                   <div className="panel glass" style={{ padding: '0.75rem 1.5rem', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Bulk import tasks from CSV</span>
                     <input type="file" accept=".csv,.xlsx,.xls" ref={taskFileRef} onChange={handleTaskCSVUpload} style={{ display: 'none' }} />

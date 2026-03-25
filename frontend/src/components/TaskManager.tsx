@@ -122,7 +122,7 @@ const TaskManager = ({ tasks, onTaskAdded, onTaskDeleted, onSwitchToSimulation }
   };
 
   return (
-    <section className="panel glass">
+    <section className="panel glass" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <div className="panel-header">
         <h2 className="panel-title">Task Manager</h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
