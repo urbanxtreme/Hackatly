@@ -119,9 +119,19 @@ func CreateTaskHandler(c *gin.Context) {
 		return
 	}
 
+	AddTaskLog(task)
 	PushTask(task)
 
 	c.JSON(http.StatusCreated, gin.H{"status": "task added", "task_id": task.TaskID})
+}
+
+func GetTaskLogsHandler(c *gin.Context) {
+	logs, err := GetTaskLogs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, logs)
 }
 
 func GetTasksHandler(c *gin.Context) {

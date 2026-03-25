@@ -22,6 +22,25 @@ type Robot struct {
 	CurrentPositionY float64   `json:"y"`
 	CurrentTask      string    `json:"current_task"`
 	Battery          int       `json:"battery"`
+	Efficiency       float64   `json:"efficiency"`
+}
+
+type TaskLog struct {
+	ID        int64     `json:"id"`
+	TaskID    string    `json:"task_id"`
+	GetX      int       `json:"get_x"`
+	GetY      int       `json:"get_y"`
+	PutX      int       `json:"put_x"`
+	PutY      int       `json:"put_y"`
+	Priority  string    `json:"priority"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+type Analytics struct {
+	TotalEfficiency float64 `json:"total_efficiency"`
+	ActiveTime      float64 `json:"active_time"`
+	WaitTime        float64 `json:"wait_time"`
+	JamTime         float64 `json:"jam_time"`
 }
 
 type Log struct {
@@ -121,11 +140,15 @@ func CreateDatabase() error {
 		current_position_x DOUBLE DEFAULT 0.0,
 		current_position_y DOUBLE DEFAULT 0.0,
 		current_task VARCHAR(255) DEFAULT 'none',
-		battery INT DEFAULT 100
+		battery INT DEFAULT 100,
+		efficiency DOUBLE DEFAULT 0.0
 	)`)
 	if err != nil {
 		return err
 	}
+
+	// Double check if efficiency column exists (if table was already created)
+	_, _ = DB.Exec("ALTER TABLE robots ADD COLUMN IF NOT EXISTS efficiency DOUBLE DEFAULT 0.0")
 
 	err = CreateTable("logs", `
 	CREATE TABLE IF NOT EXISTS logs (
@@ -202,6 +225,40 @@ func CreateDatabase() error {
 	)`)
 	if err != nil {
 		return err
+	}
+
+	err = CreateTable("tasks_log", `
+	CREATE TABLE IF NOT EXISTS tasks_log (
+		id INT AUTO_INCREMENT PRIMARY KEY,
+		task_id VARCHAR(255),
+		get_x INT,
+		get_y INT,
+		put_x INT,
+		put_y INT,
+		priority VARCHAR(50),
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+	)`)
+	if err != nil {
+		return err
+	}
+
+	err = CreateTable("analytics", `
+	CREATE TABLE IF NOT EXISTS analytics (
+		id INT PRIMARY KEY DEFAULT 1,
+		total_efficiency DOUBLE DEFAULT 0.0,
+		active_time DOUBLE DEFAULT 0.0,
+		wait_time DOUBLE DEFAULT 0.0,
+		jam_time DOUBLE DEFAULT 0.0
+	)`)
+	if err != nil {
+		return err
+	}
+
+	// Insert initial analytics row if not present
+	var count int
+	_ = DB.QueryRow("SELECT COUNT(*) FROM analytics").Scan(&count)
+	if count == 0 {
+		_, _ = DB.Exec("INSERT INTO analytics (id) VALUES (1)")
 	}
 
 	return nil
@@ -302,9 +359,9 @@ func UserExists(id int64) bool {
 // Robot functions
 
 func AddRobot(robot Robot) (int64, error) {
-	query := `INSERT INTO robots (name, state, priority, current_position_x, current_position_y, current_task, battery) 
-	          VALUES (?, ?, ?, ?, ?, ?, ?)`
-	result, err := DB.Exec(query, robot.Name, robot.State, robot.Priority, robot.CurrentPositionX, robot.CurrentPositionY, robot.CurrentTask, robot.Battery)
+	query := `INSERT INTO robots (name, state, priority, current_position_x, current_position_y, current_task, battery, efficiency) 
+	          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+	result, err := DB.Exec(query, robot.Name, robot.State, robot.Priority, robot.CurrentPositionX, robot.CurrentPositionY, robot.CurrentTask, robot.Battery, robot.Efficiency)
 	if err != nil {
 		return 0, err
 	}
@@ -338,8 +395,8 @@ func UpdateRobotTask(id int64, taskID string) error {
 
 func GetRobotByID(id int64) (Robot, error) {
 	var r Robot
-	query := "SELECT id, name, state, priority, current_position_x, current_position_y, current_task, battery FROM robots WHERE id = ?"
-	err := DB.QueryRow(query, id).Scan(&r.ID, &r.Name, &r.State, &r.Priority, &r.CurrentPositionX, &r.CurrentPositionY, &r.CurrentTask, &r.Battery)
+	query := "SELECT id, name, state, priority, current_position_x, current_position_y, current_task, battery, efficiency FROM robots WHERE id = ?"
+	err := DB.QueryRow(query, id).Scan(&r.ID, &r.Name, &r.State, &r.Priority, &r.CurrentPositionX, &r.CurrentPositionY, &r.CurrentTask, &r.Battery, &r.Efficiency)
 	if err == nil {
 		r.CurrentPosition = []float64{r.CurrentPositionX, r.CurrentPositionY}
 	}
@@ -347,7 +404,7 @@ func GetRobotByID(id int64) (Robot, error) {
 }
 
 func GetAllRobots() ([]Robot, error) {
-	query := "SELECT id, name, state, priority, current_position_x, current_position_y, current_task, battery FROM robots"
+	query := "SELECT id, name, state, priority, current_position_x, current_position_y, current_task, battery, efficiency FROM robots"
 	rows, err := DB.Query(query)
 	if err != nil {
 		return nil, err
@@ -357,7 +414,7 @@ func GetAllRobots() ([]Robot, error) {
 	var robots []Robot
 	for rows.Next() {
 		var r Robot
-		if err := rows.Scan(&r.ID, &r.Name, &r.State, &r.Priority, &r.CurrentPositionX, &r.CurrentPositionY, &r.CurrentTask, &r.Battery); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.State, &r.Priority, &r.CurrentPositionX, &r.CurrentPositionY, &r.CurrentTask, &r.Battery, &r.Efficiency); err != nil {
 			return nil, err
 		}
 		r.CurrentPosition = []float64{r.CurrentPositionX, r.CurrentPositionY}
@@ -414,6 +471,50 @@ func GetLogs() ([]Log, error) {
 		logs = append(logs, l)
 	}
 	return logs, nil
+}
+
+func AddTaskLog(task Task) error {
+	query := "INSERT INTO tasks_log (task_id, get_x, get_y, put_x, put_y, priority) VALUES (?, ?, ?, ?, ?, ?)"
+	_, err := DB.Exec(query, task.TaskID, task.GetX, task.GetY, task.PutX, task.PutY, task.Priority)
+	return err
+}
+
+func GetTaskLogs() ([]TaskLog, error) {
+	query := "SELECT id, task_id, get_x, get_y, put_x, put_y, priority, timestamp FROM tasks_log ORDER BY timestamp DESC"
+	rows, err := DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []TaskLog
+	for rows.Next() {
+		var l TaskLog
+		if err := rows.Scan(&l.ID, &l.TaskID, &l.GetX, &l.GetY, &l.PutX, &l.PutY, &l.Priority, &l.Timestamp); err != nil {
+			return nil, err
+		}
+		logs = append(logs, l)
+	}
+	return logs, nil
+}
+
+func UpdateRobotBattery(id int64, battery int) error {
+	query := "UPDATE robots SET battery = ? WHERE id = ?"
+	_, err := DB.Exec(query, battery, id)
+	return err
+}
+
+func UpdateAnalytics(a Analytics) error {
+	query := "UPDATE analytics SET total_efficiency = ?, active_time = ?, wait_time = ?, jam_time = ? WHERE id = 1"
+	_, err := DB.Exec(query, a.TotalEfficiency, a.ActiveTime, a.WaitTime, a.JamTime)
+	return err
+}
+
+func GetAnalytics() (Analytics, error) {
+	var a Analytics
+	query := "SELECT total_efficiency, active_time, wait_time, jam_time FROM analytics WHERE id = 1"
+	err := DB.QueryRow(query).Scan(&a.TotalEfficiency, &a.ActiveTime, &a.WaitTime, &a.JamTime)
+	return a, err
 }
 
 func InsertEfficiency(botID int64, score float64) error {

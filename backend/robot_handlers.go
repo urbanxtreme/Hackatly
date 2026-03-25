@@ -277,3 +277,27 @@ func AddExperienceHandler(c *gin.Context) {
 
 	c.JSON(http.StatusCreated, gin.H{"message": "Experience logged successfully"})
 }
+
+func UpdateRobotBatteryHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid robot ID"})
+		return
+	}
+
+	var req struct {
+		Battery int `json:"battery" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
+		return
+	}
+
+	if err := UpdateRobotBattery(id, req.Battery); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Robot battery updated successfully"})
+}

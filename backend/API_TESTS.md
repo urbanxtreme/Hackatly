@@ -249,3 +249,54 @@ No request body.
 No headers, no body.
 
 **Expected:** `401 Unauthorized` — `"Authorization header is required"`
+
+---
+
+## 17. Get Task Logs
+
+**GET** `http://localhost:3000/tasks/log`
+
+**Headers:** `Authorization: Bearer <token>`
+
+No request body.
+
+---
+
+## 18. Update Robot Battery
+
+**PUT** `http://localhost:3000/robots/1/battery`
+
+**Headers:** `Authorization: Bearer <token>`
+
+```json
+{
+  "battery": 85
+}
+```
+
+---
+
+## 19. Update Analytics
+
+**POST** `http://localhost:3000/analytics`
+
+**Headers:** `Authorization: Bearer <token>`
+
+```json
+{
+  "total_efficiency": 0.92,
+  "active_time": 150.5,
+  "wait_time": 12.0,
+  "jam_time": 3.5
+}
+```
+
+---
+
+## 20. Get Analytics Summary
+
+**GET** `http://localhost:3000/analytics`
+
+**Headers:** `Authorization: Bearer <token>`
+
+No request body.
