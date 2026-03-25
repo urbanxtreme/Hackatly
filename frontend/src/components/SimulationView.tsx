@@ -4,7 +4,7 @@ import { OrbitControls, Grid, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { GRID_SIZE, STATIC_GRID } from '../utils/grid';
 import TaskManager, { type ApiTask } from './TaskManager';
-import { completeTask, updateRobotPosition, addLog, addEfficiency, getMap, updateRobotState, updateRobotTask } from '../api';
+import { completeTask, updateRobotPosition, addLog, addEfficiency, addExperience, getMap, updateRobotState, updateRobotTask } from '../api';
 import './SimulationView.css';
 
 /* ─── Simulation Configuration ─── */
@@ -18,10 +18,10 @@ const SPAWN_POINTS = [
 ];
 
 /* ─── A* Pathfinding Logic ─── */
-const heuristic = (a: { x: number; z: number }, b: { x: number; z: number }) => 
+const heuristic = (a: { x: number; z: number }, b: { x: number; z: number }) =>
   Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 
-const astar = (start: { x: number; z: number }, goal: { x: number; z: number }, dynamicObstacles: Array<{x: number, z: number}> = [], grid: number[][] = []) => {
+const astar = (start: { x: number; z: number }, goal: { x: number; z: number }, dynamicObstacles: Array<{ x: number, z: number }> = [], grid: number[][] = []) => {
   let openSet = [start];
   let cameFrom = new Map<string, { x: number; z: number }>();
   let gScore = new Map<string, number>();
@@ -77,7 +77,7 @@ const astar = (start: { x: number; z: number }, goal: { x: number; z: number }, 
       }
     }
   }
-  return []; 
+  return [];
 };
 
 /* ─── Simulation Component Interface ─── */
@@ -176,7 +176,7 @@ const WarehouseEnvironment = ({ grid = [] }: { grid: number[][] }) => {
         <planeGeometry args={[GRID_SIZE, GRID_SIZE]} />
         <meshStandardMaterial color="#111" roughness={1.0} />
       </mesh>
-      
+
       <Grid
         position={[CENTER_OFFSET, 0, CENTER_OFFSET]}
         args={[GRID_SIZE, GRID_SIZE]}
@@ -211,6 +211,7 @@ const WarehouseEnvironment = ({ grid = [] }: { grid: number[][] }) => {
     </group>
   );
 };
+
 
 /* ─── Path Visualization & Conflict Zone Components ─── */
 const PathOverlay = ({ robots, mode }: { robots: RobotState[]; mode: 'NORMAL' | 'OPTIMIZED' }) => (
@@ -249,11 +250,12 @@ const ConflictZones = ({ robots, collisionCells }: { robots: RobotState[]; colli
 };
 
 /* ─── Main Simulation Component ─── */
-const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: SimulationViewProps) => {
+const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }: SimulationViewProps) => {
+
   const [robots, setRobots] = useState<RobotState[]>([]);
   const [grid, setGrid] = useState<number[][]>([]);
   const [completedTaskIds, setCompletedTaskIds] = useState<Set<string>>(new Set());
-  
+
   const [selectedRobot, setSelectedRobot] = useState<RobotState | null>(null);
   const [hasDeadlock, setHasDeadlock] = useState(false);
   const [physicalDeadlockTime, setPhysicalDeadlockTime] = useState<number | null>(null);
@@ -293,7 +295,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
     setRobots(prev => {
       const newFleet = [...prev];
       let hasChanges = false;
-      
+
       apiRobots.forEach((apiBot, index) => {
         const existing = prev.find(r => r.id === apiBot.id);
         if (!existing) {
@@ -316,7 +318,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           hasChanges = true;
         }
       });
-      
+
       const validIds = new Set(apiRobots.map(r => r.id));
       const filteredFleet = newFleet.filter(r => validIds.has(r.id));
       if (filteredFleet.length !== newFleet.length) hasChanges = true;
@@ -333,7 +335,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
         apiCallInProgress.current.add(bot.id);
         const tid = bot.currentTaskId;
         setCompletedTaskIds(prev => new Set(prev).add(tid));
-                
+
         const m = bot.metrics;
         const rawEfficiency = 100 - (m.blockedTicks * 0.5) - ((m.reroutePenalties || 0) * 2);
         const finalEfficiency = Math.max(0, Math.min(100, Math.round(rawEfficiency)));
@@ -347,13 +349,13 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           addLog(bot.id, `Completed task ${tid} at [${bot.x}, ${bot.z}] with ${finalEfficiency}% efficiency.`),
           addEfficiency(bot.id, finalEfficiency)
         ]).then(() => {
-          setRobots(prev => prev.map(r => r.id === bot.id ? { 
-            ...r, 
-            status: 'DONE', 
-            missionPhase: 'IDLE', 
-            payloadVisible: false, 
+          setRobots(prev => prev.map(r => r.id === bot.id ? {
+            ...r,
+            status: 'DONE',
+            missionPhase: 'IDLE',
+            payloadVisible: false,
             currentTaskId: undefined,
-            consecutiveBlocks: 0 
+            consecutiveBlocks: 0
           } : r));
           apiCallInProgress.current.delete(bot.id);
         });
@@ -409,11 +411,11 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
       }
 
       // 3. Assign unassigned 'in_progress' or 'pending' tasks to IDLE robots
-      const activeBackendTasks = tasks.filter(t => 
-        (t.status === 'in_progress' || t.status === 'pending') && 
+      const activeBackendTasks = tasks.filter(t =>
+        (t.status === 'in_progress' || t.status === 'pending') &&
         !completedTaskIds.has(t.task_id)
       );
-      
+
       for (const backendTask of activeBackendTasks) {
         if (updatedList.some(r => r.currentTaskId === backendTask.task_id)) continue;
 
@@ -421,12 +423,12 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
         if (availableBots.length > 0) {
           const px = backendTask.get_x;
           const pz = backendTask.get_y;
-          
+
           let nearestBot = availableBots[0];
           let minDistance = Infinity;
-          
+
           for (const bot of availableBots) {
-            const dist = heuristic({x: bot.x, z: bot.z}, {x: px, z: pz});
+            const dist = heuristic({ x: bot.x, z: bot.z }, { x: px, z: pz });
             if (dist < minDistance) {
               minDistance = dist;
               nearestBot = bot;
@@ -463,7 +465,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
   /* ─── Queue Delay Tracking (While API Resolves Deadlocks) ─── */
   useEffect(() => {
-    if (!hasDeadlock || simulationMode !== 'OPTIMIZED') return;
+    if (!hasDeadlock) return;
     const timer = setInterval(() => {
       setRobots(prev => prev.map(bot => ({
         ...bot,
@@ -569,6 +571,18 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
     if (hasDeadlock || simulationMode !== 'OPTIMIZED') return;
 
     const timer = setInterval(() => {
+      // Manage 10-second Physical Deadlock Freeze
+      setPhysicalDeadlockTime(prevTime => {
+        if (prevTime !== null) {
+          if (prevTime <= 0) {
+            // Freeze ends — bots will dynamically repath on their next tick
+            return null;
+          }
+          return prevTime - (TICK_INTERVAL / 1000);
+        }
+        return null;
+      });
+
       setRobots(prev => {
         let needsUpdate = false;
 
@@ -597,9 +611,6 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
                 occupiedByHigher.add(nkey);
                 return;
               }
-            }
-          } else {
-            occupiedByHigher.add(key);
           }
         });
 
@@ -707,6 +718,28 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
 
           if (bot.status !== 'MOVING' && bot.status !== 'BLOCKED') return bot;
 
+          // --- ML Telemetry: State Serialization ---
+          const stateArray = [bot.x, bot.z, parseInt(bot.missionData.dx || '0'), parseInt(bot.missionData.dz || '0')];
+          const offsets = [{ dx: -1, dz: -1 }, { dx: 0, dz: -1 }, { dx: 1, dz: -1 }, { dx: -1, dz: 0 }, { dx: 0, dz: 0 }, { dx: 1, dz: 0 }, { dx: -1, dz: 1 }, { dx: 0, dz: 1 }, { dx: 1, dz: 1 }];
+          for (const o of offsets) {
+            const wx = bot.x + o.dx, wz = bot.z + o.dz;
+            let val = 0; // Empty
+            if (wx < 0 || wx >= GRID_SIZE || wz < 0 || wz >= GRID_SIZE || STATIC_GRID[wx][wz] === 1) val = 1; // Wall
+            if (prev.some(r => r.id !== bot.id && r.x === wx && r.z === wz)) val = 2; // Other Robot
+            stateArray.push(val);
+          }
+          let mlAction = 0; // 0=WAIT, 1=UP, 2=DOWN, 3=LEFT, 4=RIGHT
+          let mlReward = -1; // Standard step penalty
+          const fireTuple = (act: number, rew: number, metric: any) => {
+            if (bot.currentTaskId) {
+              const eff = Math.max(0, 100 - (metric.blockedTicks * 0.5) - ((metric.reroutePenalties || 0) * 2));
+              console.log(`[ML Sensor] Bot ${bot.id} | Action: ${act} | Reward: ${rew} | Eff: ${eff}% | State Array:`, stateArray);
+              
+              addExperience(bot.id, stateArray, act, rew, eff).catch(() => { });
+            }
+          };
+          // -----------------------------------------
+
           let m = { ...bot.metrics };
           let bWarn = bot.batteryWarning;
           let logEvt = bot.lastLogEvent;
@@ -719,9 +752,45 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => {} }: 
           }
           if (bot.status === 'BLOCKED') m.blockedTicks += 1;
 
-          // Phase transition
-          if (bot.pathIndex >= bot.path.length) {
+          if (bot.pathIndex < bot.path.length) {
+            const nextStep = bot.path[bot.pathIndex];
+
+            if (nextStep.z < bot.z) mlAction = 1;
+            else if (nextStep.z > bot.z) mlAction = 2;
+            else if (nextStep.x < bot.x) mlAction = 3;
+            else if (nextStep.x > bot.x) mlAction = 4;
+
+            const occupied = prev.some(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
+
+            if (occupied) {
+              mlReward = -10; // Obstacle penalty
+              mlAction = 0;   // Forced wait
+              const blocks = (bot.consecutiveBlocks || 0) + 1;
+              if (blocks > 4) {
+                // Dynamic Repathing! Calculate around existing standing robots
+                const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({ x: r.x, z: r.z }));
+                const target = bot.path[bot.path.length - 1];
+                const newPath = astar({ x: bot.x, z: bot.z }, target, obstacles, grid);
+                if (newPath.length > 0) {
+                  logEvt = { msg: `Obstacle detected! Rerouting dynamically around [${obstacles[0]?.x}, ${obstacles[0]?.z}]`, id: Date.now() + Math.random() };
+                  needsUpdate = true;
+                  m.reroutePenalties = (m.reroutePenalties || 0) + 1;
+                  fireTuple(mlAction, mlReward, m);
+                  return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
+                }
+              }
+              if (bot.status !== 'BLOCKED') needsUpdate = true;
+              fireTuple(mlAction, mlReward, m);
+              return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: blocks, batteryWarning: bWarn, lastLogEvent: logEvt };
+            } else {
+              needsUpdate = true;
+              fireTuple(mlAction, mlReward, m);
+              return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
+            }
+          } else {
             needsUpdate = true;
+            mlReward = +100; // Goal reached / Action complete
+            fireTuple(0, mlReward, m);
             if (bot.missionPhase === 'TO_PICK') {
               const np = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], grid);
               return { ...bot, path: np, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };

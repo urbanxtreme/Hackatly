@@ -24,11 +24,19 @@ func RegisterHandler(c *gin.Context) {
 		return
 	}
 
-	token, err := CreateUser(req.Username, req.Password,req.Email)
+	userID, token, err := CreateUser(req.Username, req.Password,req.Email)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Initialize default 30x30 map for new user
+	defaultMap := make([][]int, 30)
+	for i := range defaultMap {
+		defaultMap[i] = make([]int, 30)
+	}
+	SaveUserMap(userID, defaultMap)
+	InitMap(defaultMap)
 
 	c.JSON(http.StatusOK, gin.H{
 		"username": req.Username,
@@ -43,10 +51,15 @@ func LoginHandler(c *gin.Context) {
 		return
 	}
 
-	token, err := ValidateUser(req.Username, req.Password)
+	userID, token, err := ValidateUser(req.Username, req.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid username or password"})
 		return
+	}
+
+	// Load user map into memory on login
+	if matrix, err := LoadUserMap(userID); err == nil {
+		InitMap(matrix)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

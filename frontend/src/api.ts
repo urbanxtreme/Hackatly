@@ -171,6 +171,14 @@ export async function addEfficiency(botId: number, score: number) {
   return res.json();
 }
 
+export async function addExperience(botId: number, state: number[], action: number, reward: number, efficiency: number) {
+  const res = await authFetch(`/robots/${botId}/experience`, {
+    method: 'POST',
+    body: JSON.stringify({ state: JSON.stringify(state), action, reward, efficiency })
+  });
+  return res.json();
+}
+
 export async function getEfficiencyHistory(botId: number) {
   const res = await authFetch(`/robots/${botId}/efficiency`);
   return res.json();
@@ -186,6 +194,14 @@ export async function initMap(map: number[][]) {
   const res = await authFetch('/init', {
     method: 'POST',
     body: JSON.stringify({ map }),
+  });
+  return res.json();
+}
+
+export async function updateMap(obstacles: number[][]) {
+  const res = await authFetch('/map', {
+    method: 'PUT',
+    body: JSON.stringify({ obstacles }),
   });
   return res.json();
 }

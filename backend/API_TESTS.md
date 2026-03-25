@@ -31,11 +31,15 @@
 
 ---
 
-## 3. Initialize Map
+---
+
+## 3. Initialize Map (Full Matrix)
 
 **POST** `http://localhost:3000/init`
 
 **Headers:** `Authorization: Bearer <token>`
+
+> **Note:** Typically used only during initial signup or for full resets.
 
 ```json
 {
@@ -50,7 +54,27 @@
 
 ---
 
-## 4. Get Map
+## 4. Update Map (Sparse Obstacles - Preferred)
+
+**PUT** `http://localhost:3000/map`
+
+**Headers:** `Authorization: Bearer <token>`
+
+> **Note:** More efficient for partial updates. Send only the `[x, y]` coordinates of obstacles.
+
+```json
+{
+  "obstacles": [
+    [0, 2],
+    [1, 1],
+    [2, 3]
+  ]
+}
+```
+
+---
+
+## 5. Get Map
 
 **GET** `http://localhost:3000/map`
 
