@@ -418,7 +418,8 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
   /* ─── Backend Integration & Live Task Assignment ─── */
   useEffect(() => {
     // 1. Detect deadlock or failure states
-    const isDeadlocked = tasks.some(t => t.status === 'waiting') || robots.some(r => r.consecutiveBlocks > 20);
+    // Lowered threshold to 5 to match the individual robot "DEADLOCK" badge (Conflict Resolution Mode)
+    const isDeadlocked = tasks.some(t => t.status === 'waiting') || robots.some(r => r.consecutiveBlocks >= 5);
     setHasDeadlock(isDeadlocked);
 
     // 2. Reconcile: if backend has marked a task as 'failed' or 'completed',
@@ -974,7 +975,8 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
 
 
       {/* ─── Failed Task Warning Banner ─── */}
-      {failedTasks.length > 0 && !hasDeadlock && (
+      {/* Suppress during active conflict resolution (hasDeadlock) or when robots are transitioning (optimizedDeadlocks) */}
+      {failedTasks.length > 0 && !hasDeadlock && optimizedDeadlocks.size === 0 && (
         <div className="failed-task-banner">
           ⚠️ {failedTasks.length} task(s) failed — path conflict or unreachable destination. Robot(s) have been stopped.
         </div>

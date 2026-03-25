@@ -268,8 +268,9 @@ func processQueuedTasks() {
 
 		deliveryPath, err := CooperativeAStar(task.GetX, task.GetY, task.PutX, task.PutY)
 		if err != nil {
-			log.Printf("[TaskWorker] Task %s: no delivery path found: %v\n", task.TaskID, err)
-			DB.Exec("UPDATE tasks SET status = 'failed' WHERE task_id = ?", task.TaskID)
+			log.Printf("[TaskWorker] Task %s: no delivery path found (potentially jammed): %v\n", task.TaskID, err)
+			// Mark as 'waiting' instead of 'failed' to allow for retries once the grid clears
+			DB.Exec("UPDATE tasks SET status = 'waiting' WHERE task_id = ?", task.TaskID)
 			continue
 		}
 
