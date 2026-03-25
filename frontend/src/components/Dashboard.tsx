@@ -321,7 +321,7 @@ const Dashboard = () => {
                       >
                         {isAtCapacity ? '🔒 0 Capacity' : '+ Add Robot'}
                       </button>
-                      <input type="file" accept=".csv" ref={robotFileRef} onChange={handleRobotCSVUpload} style={{ display: 'none' }} />
+                      <input type="file" accept=".csv,.xlsx,.xls" ref={robotFileRef} onChange={handleRobotCSVUpload} style={{ display: 'none' }} />
                       <button className="task-add-btn csv-upload-btn" onClick={() => robotFileRef.current?.click()}>
                         📤 Upload CSV
                       </button>
@@ -408,7 +408,7 @@ const Dashboard = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
                   <div className="panel glass" style={{ padding: '0.75rem 1.5rem', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Bulk import tasks from CSV</span>
-                    <input type="file" accept=".csv" ref={taskFileRef} onChange={handleTaskCSVUpload} style={{ display: 'none' }} />
+                    <input type="file" accept=".csv,.xlsx,.xls" ref={taskFileRef} onChange={handleTaskCSVUpload} style={{ display: 'none' }} />
                     <button className="task-add-btn csv-upload-btn" onClick={() => taskFileRef.current?.click()}>
                       📤 Upload Tasks CSV
                     </button>
