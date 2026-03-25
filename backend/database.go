@@ -431,6 +431,12 @@ func GetEfficiencyHistory(botID int64) ([]EfficiencyLog, error) {
 	return logs, nil
 }
 
+func InsertExperience(botID int64, state string, action int, reward, efficiency float64) error {
+	query := `INSERT INTO experience_replay (bot_id, state, action, reward, efficiency) VALUES (?, ?, ?, ?, ?)`
+	_, err := DB.Exec(query, botID, state, action, reward, efficiency)
+	return err
+}
+
 // Map persistence functions
 
 func SaveUserMap(userID int64, matrix [][]int) error {
