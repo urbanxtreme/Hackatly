@@ -694,7 +694,8 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
         // ── 3b: Wait-For Graph & Cycle Detection (A→B→C→A) ──
         const blockedBy = new Map<number, number>();
         intentions.forEach((pos, id) => {
-          if (yieldIds.has(id)) return;
+          // REMOVE: if (yieldIds.has(id)) return; 
+          // Including yielders in the graph allows swap (A<->B) detection as a 2-node cycle
           const blocker = prev.find(r => r.id !== id && r.x === pos.x && r.z === pos.z);
           if (blocker) blockedBy.set(id, blocker.id);
         });
@@ -768,12 +769,12 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
             redCells.push(bot.path[bot.pathIndex]);
           }
         });
-        // Badge: bots that are currently BLOCKED in optimized mode
-        const blockedInOptimized = new Set<number>(
-          prev.filter(b => b.status === 'BLOCKED' || yieldIds.has(b.id)).map(b => b.id)
+        // Badge: bots that are truly stuck (multiple consecutive blocks) 
+        const stuckInOptimized = new Set<number>(
+          prev.filter(b => b.consecutiveBlocks >= 5).map(b => b.id)
         );
         setOptimizedConflictCells(redCells);
-        setOptimizedDeadlocks(blockedInOptimized);
+        setOptimizedDeadlocks(stuckInOptimized);
 
         // ══════════════════════════════════════════════════════════════
         // PHASE 4 & 5 — RESOLUTION + MOVEMENT EXECUTION
@@ -850,6 +851,19 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
             needsUpdate = true;
             m.blockedTicks += 1;
             fireTuple(0, -10, m);
+            
+            // If yielding for too long, attempt a proactive reroute to clear the path
+            if (bot.consecutiveBlocks >= 10) {
+              const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
+              const target = bot.path.length > 0 ? bot.path[bot.path.length - 1] : {x: bot.x, z: bot.z};
+              const newPath = astar({x: bot.x, z: bot.z}, target, obstacles, currentGrid);
+              if (newPath.length > 0) {
+                m.reroutePenalties = (m.reroutePenalties || 0) + 1;
+                logEvt = { msg: `[Middleware] Yielding too long — forcing proactive reroute`, id: Date.now() + Math.random() };
+                return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
+              }
+            }
+            
             return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: (bot.consecutiveBlocks || 0) + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
           }
 
@@ -876,10 +890,10 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { }, a
               let rerouteThreshold: number;
               if (botPri > blockerPri) {
                 // I'm higher priority — hold ground, let them dodge
-                rerouteThreshold = 6;
+                rerouteThreshold = 4;
               } else {
                 // I'm lower priority — dodge quickly
-                rerouteThreshold = 2;
+                rerouteThreshold = 1;
               }
 
               // Entropy injection during global deadlock
