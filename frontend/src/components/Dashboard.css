@@ -511,6 +511,23 @@
   transform: translateY(-1px);
 }
 
+.random-burst-btn {
+  background: rgba(234, 140, 0, 0.85);
+  color: #fff;
+}
+
+.random-burst-btn:hover {
+  background: rgba(234, 140, 0, 1);
+  transform: translateY(-1px);
+  box-shadow: 0 0 12px rgba(234, 140, 0, 0.4);
+}
+
+.random-burst-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* Task List */
 .task-list {
   display: flex;
