@@ -57,11 +57,15 @@ const astar = (start: { x: number; z: number }, goal: { x: number; z: number }, 
       const isWithinBounds = n.x >= 0 && n.x < GRID_SIZE && n.z >= 0 && n.z < GRID_SIZE;
       if (!isWithinBounds) return false;
       const cellVal = (grid && grid.length > 0) ? grid[n.x][n.z] : STATIC_GRID[n.x][n.z];
-      return cellVal === 0 && !isObstacle(n.x, n.z);
+      // ── Soft Obstacles: Do not strictly reject cells occupied by other robots ──
+      // Racks/walls are still rejected (cellVal === 0)
+      return cellVal === 0;
     });
 
     for (const n of neighbors) {
-      const tentativeGScore = (gScore.get(toKey(current)) ?? Infinity) + 1;
+      // Add a heavy penalty cost to cells occupied by other robots to encourage going around
+      const cost = isObstacle(n.x, n.z) ? 50 : 1;
+      const tentativeGScore = (gScore.get(toKey(current)) ?? Infinity) + cost;
       const nKey = toKey(n);
       if (tentativeGScore < (gScore.get(nKey) ?? Infinity)) {
         cameFrom.set(nKey, current);
@@ -509,7 +513,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
           });
         });
 
-        // Detect same-cell collisions (two bots targeting same cell)
+        // Detect same-cell collisions (two bots targeting same empty cell)
         const cellTargets = new Map<string, number[]>();
         moves.forEach((pos, id) => {
           if (frozenIds.has(id)) return;
@@ -519,20 +523,38 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
         });
         const colCells: {x:number,z:number}[] = [];
         cellTargets.forEach((ids, k) => {
-          if (ids.length > 1) { const [x,z]=k.split(',').map(Number); colCells.push({x,z}); }
+          if (ids.length > 1) { 
+            const [x,z]=k.split(',').map(Number); colCells.push({x,z});
+            ids.forEach(id => frozenIds.add(id)); // Both crash and get stuck
+          }
+        });
+
+        // Naive physical blocker detection (trying to step on an occupied cell)
+        moves.forEach((posA, idA) => {
+           if (frozenIds.has(idA)) return;
+           const blockingBot = afterPhase.find(b => b.id !== idA && b.x === posA.x && b.z === posA.z);
+           if (blockingBot) {
+              // The cell is physically occupied. Crash/stuck. 
+              frozenIds.add(idA);
+           }
         });
 
         const newDeadlocks = new Set<number>(frozenIds);
         setNormalDeadlocks(newDeadlocks);
         setCollisionCells(colCells);
 
-        // Apply moves naively — no rerouting, robots just freeze on deadlock
+        // Apply moves naively — no rerouting, robots just freeze on deadlock or physical collision
         return afterPhase.map(bot => {
           if (bot.status !== 'MOVING' && bot.status !== 'BLOCKED') return bot;
-          const m = { ...bot.metrics, activeTicks: bot.metrics.activeTicks + 1 };
+          let m = { ...bot.metrics };
+          
           if (frozenIds.has(bot.id)) {
-            return { ...bot, status: 'BLOCKED' as const, metrics: { ...m, blockedTicks: m.blockedTicks + 1 } };
+            m.blockedTicks += 1;
+            return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: (bot.consecutiveBlocks || 0) + 1 };
           }
+          
+          if (bot.status === 'MOVING') m.activeTicks += 1;
+          
           if (bot.pathIndex < bot.path.length) {
             const ns = bot.path[bot.pathIndex];
             return { ...bot, x: ns.x, z: ns.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0 };
@@ -562,91 +584,138 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
       });
 
       setRobots(prev => {
-        // If we are actively frozen, don't move bots
-        if (physicalDeadlockTimeRef.current !== null && physicalDeadlockTimeRef.current > 0) {
-          return prev;
-        }
-
         let needsUpdate = false;
 
-        // 1. Detect physical head-to-head blockages
-        const blockedBy = new Map<number, number>();
-        prev.forEach(bot => {
-          if (bot.pathIndex < bot.path.length && (bot.status === 'MOVING' || bot.status === 'BLOCKED')) {
-            const nextStep = bot.path[bot.pathIndex];
-            const blockingBot = prev.find(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
-            if (blockingBot) {
-              blockedBy.set(bot.id, blockingBot.id);
-            }
-          }
-        });
+        // ══════════════════════════════════════════════════════════════
+        // LOCAL BRAIN — runs every tick before any movement decision
+        // ══════════════════════════════════════════════════════════════
 
-        // 2. Cycle detection across the wait-for graph
-        let newDeadlock = false;
-        for (const startId of blockedBy.keys()) {
-          let currentId = startId;
-          const visited = new Set<number>();
-          while (blockedBy.has(currentId)) {
-            visited.add(currentId);
-            currentId = blockedBy.get(currentId)!;
-            if (visited.has(currentId)) {
-              // Cycle detected
-              const cycleBots = Array.from(visited);
-              // Only trigger freeze if AT LEAST ONE bot in the cycle hasn't been frozen yet
-              if (cycleBots.some(id => {
-                const bot = prev.find(r => r.id === id);
-                return bot && (bot.consecutiveBlocks || 0) < 5;
-              })) {
-                newDeadlock = true;
+        // ── LB-1: Fix same-cell occupancy (already sharing a cell) ──
+        // When two robots end up on the same tile, bump the lower-ID one 
+        // to a free adjacent cell immediately. This is the root of the
+        // deadlock shown in the screenshot.
+        const occupancyFixMap = new Map<number, {x:number,z:number}>(); // botId → forced new pos
+        const occupiedByHigher = new Set<string>();
+        // Sort descending by ID so higher-ID "wins" the cell
+        const sorted = [...prev].sort((a, b) => b.id - a.id);
+        sorted.forEach(bot => {
+          const key = `${bot.x},${bot.z}`;
+          if (occupiedByHigher.has(key)) {
+            // This bot shares a cell — find a free adjacent tile and teleport it there
+            const offsets = [{dx:1,dz:0},{dx:-1,dz:0},{dx:0,dz:1},{dx:0,dz:-1},{dx:1,dz:1},{dx:-1,dz:1},{dx:1,dz:-1},{dx:-1,dz:-1}];
+            for (const o of offsets) {
+              const nx = bot.x + o.dx, nz = bot.z + o.dz;
+              const nkey = `${nx},${nz}`;
+              if (nx >= 0 && nx < GRID_SIZE && nz >= 0 && nz < GRID_SIZE && STATIC_GRID[nx][nz] === 0 && !occupiedByHigher.has(nkey)) {
+                occupancyFixMap.set(bot.id, {x: nx, z: nz});
+                occupiedByHigher.add(nkey);
+                return;
               }
-              break;
-            }
-          }
-        }
-
-        // 3. Detect "Target Blocked by Idle" deadlocks
-        let targetBlockedDeadlock = false;
-        const idleBlockers = new Set<number>();
-        const blockedByIdle = new Set<number>();
-
-        prev.forEach(bot => {
-          if (bot.status === 'BLOCKED' && bot.path.length > 0) {
-            const target = bot.path[bot.path.length - 1];
-            const blockingIdle = prev.find(r => r.id !== bot.id && r.x === target.x && r.z === target.z && (r.status === 'IDLE' || r.status === 'DONE'));
-            if (blockingIdle && (bot.consecutiveBlocks || 0) > 4) {
-              targetBlockedDeadlock = true;
-              idleBlockers.add(blockingIdle.id);
-              blockedByIdle.add(bot.id);
-            }
           }
         });
 
-        if (newDeadlock || targetBlockedDeadlock) {
-          setPhysicalDeadlockTime(prevTime => prevTime === null ? 10 : prevTime);
-          return prev.map(bot => {
-            if (idleBlockers.has(bot.id)) {
-              // Wake up the idle bot and assign a new waitTarget so it moves out of the way!
-              const findWait = () => {
-                const offsets = [{ dx: 2, dz: 0 }, { dx: -2, dz: 0 }, { dx: 0, dz: 2 }, { dx: 0, dz: -2 }, { dx: 2, dz: 2 }, { dx: -2, dz: -2 }];
-                for (let o of offsets) {
-                  const wx = bot.x + o.dx, wz = bot.z + o.dz;
-                  const occupied = prev.some(r => r.x === wx && r.z === wz);
-                  if (wx >= 0 && wx < GRID_SIZE && wz >= 0 && wz < GRID_SIZE && STATIC_GRID[wx][wz] === 0 && !occupied) return { x: wx, z: wz };
-                }
-                return { x: bot.x, z: bot.z };
-              };
-              const wt = findWait();
-              const wtPath = astar({ x: bot.x, z: bot.z }, wt, [], grid);
-              return { ...bot, missionPhase: 'TO_WAIT' as const, status: 'BLOCKED' as const, path: wtPath, pathIndex: 1, consecutiveBlocks: 5, lastLogEvent: { msg: `Target blocked by parking! Evicting IDLE robot to dynamically assigned location [${wt.x}, ${wt.z}]`, id: Date.now() + Math.random() } };
-            }
-            if (blockedBy.has(bot.id) || blockedByIdle.has(bot.id)) {
-              return { ...bot, status: 'BLOCKED' as const, consecutiveBlocks: 5 };
-            }
-            return bot;
-          });
+        // ── LB-2: Build intended next moves ──
+        const intentions = new Map<number, {x:number,z:number}>();
+        prev.forEach(bot => {
+          if ((bot.status === 'MOVING' || bot.status === 'BLOCKED') && bot.pathIndex < bot.path.length)
+            intentions.set(bot.id, bot.path[bot.pathIndex]);
+        });
+
+        // ── LB-3: (Removed) Swap logic was hiding blocks from the A* dodger ──
+        const yieldIds = new Set<number>();
+
+        // ── LB-4: Multi-hop cycle detection (A→B→C→A) ──
+        // Build wait-for graph: who is each bot blocked by?
+        const blockedBy = new Map<number, number>();
+        intentions.forEach((pos, id) => {
+          if (yieldIds.has(id)) return;
+          const blocker = prev.find(r => r.id !== id && r.x === pos.x && r.z === pos.z);
+          if (blocker) blockedBy.set(id, blocker.id);
+        });
+        // Find all bots in a cycle and reroute all but the one with most remaining path
+        const inCycle = new Set<number>();
+        blockedBy.forEach((_, startId) => {
+          let cur = startId;
+          const visited = new Map<number, number>(); // id → step
+          let step = 0;
+          while (blockedBy.has(cur) && !visited.has(cur)) {
+            visited.set(cur, step++);
+            cur = blockedBy.get(cur)!;
+          }
+          if (visited.has(cur)) {
+            // cur is the cycle entry — walk the cycle
+            let cycleNode = cur;
+            do {
+              inCycle.add(cycleNode);
+              cycleNode = blockedBy.get(cycleNode)!;
+            } while (cycleNode !== cur);
+          }
+        });
+        // For each cycle: keep the bot with the longest remaining path moving, reroute rest
+        const cycleRerouteIds = new Set<number>();
+        if (inCycle.size > 0) {
+          const cycleBots = [...inCycle].map(id => prev.find(b => b.id === id)!).filter(Boolean);
+          const winner = cycleBots.reduce((best, b) => (b.path.length - b.pathIndex) > (best.path.length - best.pathIndex) ? b : best, cycleBots[0]);
+          cycleBots.forEach(b => { if (b.id !== winner.id) cycleRerouteIds.add(b.id); });
         }
 
+        // ── LB-5: Same-cell races on intended moves ──
+        const cellRacers = new Map<string, number[]>();
+        intentions.forEach((pos, id) => {
+          if (yieldIds.has(id) || cycleRerouteIds.has(id)) return;
+          const k = `${pos.x},${pos.z}`;
+          if (!cellRacers.has(k)) cellRacers.set(k, []);
+          cellRacers.get(k)!.push(id);
+        });
+        cellRacers.forEach(ids => { if (ids.length > 1) ids.slice(1).forEach(id => yieldIds.add(id)); });
+
+        // ── LB-6: Immediate idle eviction ──
+        const evictIds = new Set<number>();
+        prev.forEach(bot => {
+          if ((bot.status === 'MOVING' || bot.status === 'BLOCKED') && bot.path.length > 0) {
+            const goal = bot.path[bot.path.length - 1];
+            const blocker = prev.find(r => r.id !== bot.id && r.x === goal.x && r.z === goal.z && (r.status === 'IDLE' || r.status === 'DONE') && !evictIds.has(r.id));
+            if (blocker) evictIds.add(blocker.id);
+          }
+        });
+
+        // ══════════════════════════════════════════════════════════════
+        // MOVEMENT PHASE
+        // ══════════════════════════════════════════════════════════════
         const nextFleet = prev.map(bot => {
+          // LB-1: Same-cell occupancy fix — teleport bot to free adjacent cell and repath
+          if (occupancyFixMap.has(bot.id)) {
+            const newPos = occupancyFixMap.get(bot.id)!;
+            const goal = bot.path.length > 0 ? bot.path[bot.path.length - 1] : {x: bot.x, z: bot.z};
+            const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
+            const newPath = astar(newPos, goal, obstacles, grid);
+            needsUpdate = true;
+            return { ...bot, x: newPos.x, z: newPos.z, path: newPath, pathIndex: 1, status: 'MOVING' as const, consecutiveBlocks: 0, lastLogEvent: { msg: `[Local Brain] Same-cell collision resolved — repositioned to [${newPos.x},${newPos.z}]`, id: Date.now() + Math.random() } };
+          }
+
+          // LB-4: Cycle reroute — force a new path around everyone else
+          if (cycleRerouteIds.has(bot.id)) {
+            const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
+            const goal = bot.path.length > 0 ? bot.path[bot.path.length - 1] : {x: bot.x, z: bot.z};
+            const newPath = astar({x: bot.x, z: bot.z}, goal, obstacles, grid);
+            needsUpdate = true;
+            if (newPath.length > 0) {
+              return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, consecutiveBlocks: 0, lastLogEvent: { msg: `[Local Brain] Cycle broken — rerouting around deadlock chain`, id: Date.now() + Math.random() } };
+            }
+          }
+
+          // LB-6: Idle eviction
+          if (evictIds.has(bot.id)) {
+            const offsets = [{dx:2,dz:0},{dx:-2,dz:0},{dx:0,dz:2},{dx:0,dz:-2},{dx:1,dz:0},{dx:-1,dz:0},{dx:0,dz:1},{dx:0,dz:-1}];
+            for (const o of offsets) {
+              const wx = bot.x + o.dx, wz = bot.z + o.dz;
+              if (wx >= 0 && wx < GRID_SIZE && wz >= 0 && wz < GRID_SIZE && STATIC_GRID[wx][wz] === 0 && !prev.some(r => r.x === wx && r.z === wz)) {
+                const ep = astar({x: bot.x, z: bot.z}, {x: wx, z: wz}, [], grid);
+                if (ep.length > 0) { needsUpdate = true; return { ...bot, missionPhase: 'TO_WAIT' as const, status: 'MOVING' as const, path: ep, pathIndex: 1, consecutiveBlocks: 0 }; }
+              }
+            }
+          }
+
           if (bot.status !== 'MOVING' && bot.status !== 'BLOCKED') return bot;
 
           // --- ML Telemetry: State Serialization ---
@@ -723,52 +792,99 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
             mlReward = +100; // Goal reached / Action complete
             fireTuple(0, mlReward, m);
             if (bot.missionPhase === 'TO_PICK') {
-              const nextPath = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], grid);
-              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
+              const np = astar({ x: bot.x, z: bot.z }, { x: parseInt(bot.missionData.dx), z: parseInt(bot.missionData.dz) }, [], grid);
+              return { ...bot, path: np, pathIndex: 1, missionPhase: 'TO_DROP' as const, payloadVisible: true, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
             } else if (bot.missionPhase === 'TO_DROP') {
-              const findWait = () => {
-                const offsets = [{ dx: 2, dz: 0 }, { dx: -2, dz: 0 }, { dx: 0, dz: 2 }, { dx: 0, dz: -2 }, { dx: 2, dz: 2 }, { dx: -2, dz: -2 }];
-                for (let o of offsets) {
-                  const wx = bot.x + o.dx, wz = bot.z + o.dz;
-                  if (wx >= 0 && wx < GRID_SIZE && wz >= 0 && wz < GRID_SIZE && STATIC_GRID[wx][wz] === 0) return { x: wx, z: wz };
-                }
-                return { x: bot.x, z: bot.z };
-              };
-              const waitTarget = findWait();
-              const nextPath = astar({ x: bot.x, z: bot.z }, waitTarget, [], grid);
-              return { ...bot, path: nextPath, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
+              const offsets = [{dx:2,dz:0},{dx:-2,dz:0},{dx:0,dz:2},{dx:0,dz:-2},{dx:2,dz:2},{dx:-2,dz:-2}];
+              let wt = {x: bot.x, z: bot.z};
+              for (const o of offsets) { const wx=bot.x+o.dx,wz=bot.z+o.dz; if(wx>=0&&wx<GRID_SIZE&&wz>=0&&wz<GRID_SIZE&&STATIC_GRID[wx][wz]===0){wt={x:wx,z:wz};break;} }
+              const np = astar({ x: bot.x, z: bot.z }, wt, [], grid);
+              return { ...bot, path: np, pathIndex: 1, missionPhase: 'TO_WAIT' as const, payloadVisible: false, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
             } else if (bot.missionPhase === 'TO_WAIT') {
               return { ...bot, missionPhase: 'FINISHING' as const, status: 'IDLE' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
-            } else {
-              return bot; // Already finishing or idle
             }
+            return bot;
           }
+
+          // LB-3: Yielding bot — wait 1 tick
+          if (yieldIds.has(bot.id)) {
+            needsUpdate = true;
+            m.blockedTicks += 1;
+            return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: (bot.consecutiveBlocks || 0) + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
+          }
+
+          const nextStep = bot.path[bot.pathIndex];
+          const occupied = prev.some(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
+
+          if (occupied) {
+            const blocks = (bot.consecutiveBlocks || 0) + 1;
+            
+            // ── LB-7: Anti-Dance Symmetry Breaker & Central Server Hook ──
+            // Stagger the reroute timer based on Robot ID so two bots never sidestep 
+            // symmetrically. The lower ID dodges immediately, the higher ID stands still.
+            const blocker = prev.find(r => r.id !== bot.id && r.x === nextStep.x && r.z === nextStep.z);
+            let rerouteThreshold = 2; 
+            if (blocker) {
+               rerouteThreshold = (bot.id < blocker.id) ? 1 : 4;
+            }
+            
+            // Central Server Hook: If the backend detects a global cycle graph, 
+            // compress the reroute threshold and add entropy to shatter the loop.
+            if (hasDeadlock) {
+               rerouteThreshold = Math.max(0, rerouteThreshold - Math.floor(Math.random() * 2));
+            }
+
+            if (blocks > rerouteThreshold) {
+              // Reroute using Soft Obstacles (high cost to push it to empty adjacent lanes)
+              const obstacles = prev.filter(r => r.id !== bot.id).map(r => ({x: r.x, z: r.z}));
+              const goal = bot.path[bot.path.length - 1];
+              const newPath = astar({x: bot.x, z: bot.z}, goal, obstacles, grid);
+              if (newPath.length > 0) {
+                needsUpdate = true;
+                m.reroutePenalties = (m.reroutePenalties || 0) + 1;
+                logEvt = { msg: `[Local Brain] Rerouting around blockage at [${nextStep.x},${nextStep.z}]`, id: Date.now() + Math.random() };
+                return { ...bot, path: newPath, pathIndex: 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
+              }
+            }
+            if (bot.status !== 'BLOCKED') needsUpdate = true;
+            return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: blocks, batteryWarning: bWarn, lastLogEvent: logEvt };
+          }
+
+          if ((bot.consecutiveBlocks || 0) > 0) {
+            // ── Courtesy Wait (2 Ticks) ──
+            // The cell just became free, but we were blocked. Wait 2 extra ticks 
+            // to let the dodging robot completely clear the adjacent area.
+            // We set consecutiveBlocks to -2 so we wait 2 cycles (it counts up).
+            needsUpdate = true;
+            return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: -2, batteryWarning: bWarn, lastLogEvent: logEvt };
+          }
+
+          if ((bot.consecutiveBlocks || 0) < 0) {
+             // Increment back to 0 so we eventually move
+             needsUpdate = true;
+             return { ...bot, status: 'BLOCKED' as const, metrics: m, consecutiveBlocks: bot.consecutiveBlocks + 1, batteryWarning: bWarn, lastLogEvent: logEvt };
+          }
+
+          needsUpdate = true;
+          return { ...bot, x: nextStep.x, z: nextStep.z, pathIndex: bot.pathIndex + 1, status: 'MOVING' as const, metrics: m, consecutiveBlocks: 0, batteryWarning: bWarn, lastLogEvent: logEvt };
         });
+
         return needsUpdate ? nextFleet : prev;
       });
     }, TICK_INTERVAL);
 
     return () => clearInterval(timer);
-  }, [hasDeadlock]);
+  }, [hasDeadlock, simulationMode, grid]);
+
+
+
 
   const failedTasks = tasks.filter(t => t.status === 'failed');
 
   return (
     <div className="simulation-view">
-      {/* ─── Physical Deadlock Overlay ─── */}
-      {physicalDeadlockTime !== null && physicalDeadlockTime > 0 && (
-        <div className="deadlock-overlay" style={{ background: 'rgba(255, 0, 0, 0.7)' }}>
-          <div className="deadlock-warning" style={{ border: '3px solid #fff' }}>
-            <h1>⚠️ PHYSICAL COLLISION PREVENTED</h1>
-            <p>Robots are attempting to occupy the same space in the aisles.</p>
-            <p><strong>Freezing fleet to calculate evasion routes...</strong></p>
-            <h2 style={{ fontSize: '3rem', margin: '20px 0' }}>{Math.ceil(physicalDeadlockTime)}s</h2>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Backend Deadlock Overlay ─── */}
-      {hasDeadlock && !physicalDeadlockTime && (
+      {/* ─── Backend Deadlock Overlay (Optimized mode only) ─── */}
+      {hasDeadlock && simulationMode === 'OPTIMIZED' && (
         <div className="deadlock-overlay">
           <div className="deadlock-warning">
             <h1>CRITICAL DEADLOCK DETECTED!</h1>
@@ -780,7 +896,7 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
       )}
 
       {/* ─── Failed Task Warning Banner ─── */}
-      {failedTasks.length > 0 && !hasDeadlock && !physicalDeadlockTime && (
+      {failedTasks.length > 0 && !hasDeadlock && (
         <div className="failed-task-banner">
           ⚠️ {failedTasks.length} task(s) failed — path conflict or unreachable destination. Robot(s) have been stopped.
         </div>
@@ -871,10 +987,10 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
             </div>
           )}
         </div>
-        <div className="panel glass" style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '15px', padding: '15px' }}>
-          <div className="sim-panel-title" style={{ fontSize: '1rem' }}>Global <span>Efficiency</span></div>
-          <div style={{ textAlign: 'center', margin: '5px 0' }}>
-            <span style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#00aaff', textShadow: '0 0 10px rgba(0,170,255,0.5)' }}>
+        <div className="panel glass" style={{ display: 'flex', flexDirection: 'column', gap: '2px', flexShrink: 0, padding: '12px 15px' }}>
+          <div className="sim-panel-title" style={{ fontSize: '0.9rem', marginBottom: '0' }}>Global <span>Efficiency</span></div>
+          <div style={{ textAlign: 'center', margin: '0' }}>
+            <span style={{ fontSize: '2.1rem', fontWeight: 'bold', color: '#00aaff', textShadow: '0 0 10px rgba(0,170,255,0.5)' }}>
               {(() => {
                 let act = 0, q = 0, blk = 0;
                 robots.forEach(r => { act += r.metrics.activeTicks; q += r.metrics.queuedTicks; blk += r.metrics.blockedTicks; });
@@ -883,17 +999,17 @@ const SimulationView = ({ apiRobots = [], tasks = [], onFetchData = () => { } }:
               })()}
             </span>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', fontWeight: 'bold', opacity: 0.8, borderTop: '1px solid #333', paddingTop: '10px' }}>
-            <span style={{ color: '#00cc66' }}>Active: {robots.reduce((s, r) => s + r.metrics.activeTicks, 0)}ticks</span>
-            <span style={{ color: '#ffcc00' }}>Wait: {robots.reduce((s, r) => s + r.metrics.queuedTicks, 0)}ticks</span>
-            <span style={{ color: '#ff3333' }}>Jams: {robots.reduce((s, r) => s + r.metrics.blockedTicks, 0)}ticks</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', fontWeight: 'bold', opacity: 0.8, borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '6px', marginTop: '2px' }}>
+            <span style={{ color: '#00cc66' }}>Active: {robots.reduce((s, r) => s + r.metrics.activeTicks, 0)}t</span>
+            <span style={{ color: '#ffcc00' }}>Wait: {robots.reduce((s, r) => s + r.metrics.queuedTicks, 0)}t</span>
+            <span style={{ color: '#ff3333' }}>Jams: {robots.reduce((s, r) => s + r.metrics.blockedTicks, 0)}t</span>
           </div>
         </div>
 
-        <div className="panel glass" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-          <TaskManager
-            tasks={tasks}
-            onTaskAdded={onFetchData}
+        <div style={{ flex: 1, overflowY: 'auto', minHeight: '300px', display: 'flex', flexDirection: 'column' }}>
+          <TaskManager 
+            tasks={tasks} 
+            onTaskAdded={onFetchData} 
             onTaskDeleted={onFetchData}
           />
         </div>
