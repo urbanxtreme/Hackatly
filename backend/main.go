@@ -64,6 +64,7 @@ r.Use(func(c *gin.Context) {
 		protected.POST("/robots/:id/efficiency", AddEfficiencyHandler)
 		protected.GET("/robots/:id/efficiency", GetEfficiencyHandler)
 		protected.POST("/robots/:id/experience", AddExperienceHandler)
+		protected.POST("/brain/predict", BrainPredictHandler)
 
 
 		protected.GET("/logs", GetLogsHandler)

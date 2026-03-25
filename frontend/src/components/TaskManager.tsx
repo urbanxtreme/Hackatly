@@ -2,16 +2,7 @@ import { useState } from 'react';
 import { createTask, deleteTask } from '../api';
 import './Dashboard.css';
 
-export interface ApiTask {
-  task_id: string;
-  get_x: number;
-  get_y: number;
-  put_x: number;
-  put_y: number;
-  priority: string;
-  status: string;
-  created_at: string;
-}
+import { type ApiTask } from '../types';
 
 interface TaskManagerProps {
   tasks: ApiTask[];

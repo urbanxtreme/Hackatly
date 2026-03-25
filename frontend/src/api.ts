@@ -179,6 +179,14 @@ export async function addExperience(botId: number, state: number[], action: numb
   return res.json();
 }
 
+export async function predictAction(state: number[]) {
+  const res = await authFetch('/brain/predict', {
+    method: 'POST',
+    body: JSON.stringify({ state })
+  });
+  return res.json();
+}
+
 export async function getEfficiencyHistory(botId: number) {
   const res = await authFetch(`/robots/${botId}/efficiency`);
   return res.json();
