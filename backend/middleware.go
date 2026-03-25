@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -26,6 +27,13 @@ func AuthMiddleware() gin.HandlerFunc {
 		claims, err := VerifyToken(parts[1])
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+			c.Abort()
+			return
+		}
+
+		userID, err := strconv.ParseInt(claims.Subject, 10, 64)
+		if err != nil || !UserExists(userID) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "User no longer exists"})
 			c.Abort()
 			return
 		}

@@ -289,6 +289,16 @@ func ValidateUser(name, password string) (int64, string, error) {
 	return 0, "", fmt.Errorf("invalid password")
 }
 
+func UserExists(id int64) bool {
+	var exists bool
+	query := "SELECT EXISTS(SELECT 1 FROM users WHERE id = ?)"
+	err := DB.QueryRow(query, id).Scan(&exists)
+	if err != nil {
+		return false
+	}
+	return exists
+}
+
 // Robot functions
 
 func AddRobot(robot Robot) (int64, error) {
