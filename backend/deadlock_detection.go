@@ -93,16 +93,23 @@ func BuildWaitForGraph(tasks []Task) *WaitForGraph {
 }
 
 func positionsConflict(a, b Task) bool {
-	// a's get conflicts with b's get or put
 	if (a.GetX == b.GetX && a.GetY == b.GetY) ||
 		(a.GetX == b.PutX && a.GetY == b.PutY) {
 		return true
 	}
-	// a's put conflicts with b's get or put
 	if (a.PutX == b.GetX && a.PutY == b.GetY) ||
 		(a.PutX == b.PutX && a.PutY == b.PutY) {
 		return true
 	}
+	if (b.GetX == a.GetX && b.GetY == a.GetY) ||
+		(b.GetX == a.PutX && b.GetY == a.PutY) {
+		return true
+	}
+	if (b.PutX == a.GetX && b.PutY == a.GetY) ||
+		(b.PutX == a.PutX && b.PutY == a.PutY) {
+		return true
+	}
+	
 	return false
 }
 

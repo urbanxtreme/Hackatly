@@ -269,6 +269,12 @@ func UpdateRobotPosition(id int64, x, y float64) error {
 	return err
 }
 
+func UpdateRobotTask(id int64, taskID string) error {
+	query := "UPDATE robots SET current_task = ? WHERE id = ?"
+	_, err := DB.Exec(query, taskID, id)
+	return err
+}
+
 
 func GetRobotByID(id int64) (Robot, error) {
 	var r Robot

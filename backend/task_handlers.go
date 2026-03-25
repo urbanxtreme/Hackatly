@@ -164,6 +164,13 @@ func processQueuedTasks() {
 
 	log.Printf("[TaskWorker] Processing %d new task(s)...\n", len(newTasks))
 
+	// Evict any idle robots occupying get/put positions
+	for _, t := range newTasks {
+		evictIdleRobots(t.GetX, t.GetY)
+		evictIdleRobots(t.PutX, t.PutY)
+	}
+
+
 	// Also load existing in_progress tasks from DB so deadlock detection
 	// can catch conflicts between new tasks and already-running tasks.
 	var existingTasks []Task
@@ -214,4 +221,43 @@ func processQueuedTasks() {
 	}
 
 	log.Println("[TaskWorker] Batch processing complete")
+}
+
+func evictIdleRobots(x, y int) {
+	robots, err := GetAllRobots()
+	if err != nil {
+		return
+	}
+
+	for _, r := range robots {
+		// If robot is exactly at the position and is idle
+		if r.State == "idle" && int(r.CurrentPositionX) == x && int(r.CurrentPositionY) == y {
+			log.Printf("[TaskWorker] Evicting idle robot %d from blocking position (%d,%d)\n", r.ID, x, y)
+			
+			// Find a nearby free cell
+			dx := []int{-1, 1, 0, 0}
+			dy := []int{0, 0, -1, 1}
+			
+			for i := 0; i < 4; i++ {
+				nx, ny := x+dx[i], y+dy[i]
+				if IsWalkable(nx, ny) {
+					// Check if any other robot is there
+					occupied := false
+					for _, other := range robots {
+						if int(other.CurrentPositionX) == nx && int(other.CurrentPositionY) == ny {
+							occupied = true
+							break
+						}
+					}
+					
+					if !occupied {
+						UpdateRobotPosition(r.ID, float64(nx), float64(ny))
+						AddLog(r.ID, "Evicted to clear path for new task")
+						log.Printf("[TaskWorker] Robot %d moved to (%d,%d)\n", r.ID, nx, ny)
+						return
+					}
+				}
+			}
+		}
+	}
 }
